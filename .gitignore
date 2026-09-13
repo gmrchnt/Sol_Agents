@@ -8,3 +8,6 @@ logs/*
 
 workspace/*
 !workspace/.gitkeep
+
+smoke_test.py
+specific_test.py
