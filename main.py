@@ -17,26 +17,38 @@ def main() -> None:
         "Enter a simple software request: "
     )
 
-    print()
-    print("=" * 60)
-    print("GENERATING SPECIFICATION")
-    print("=" * 60)
+    while True:
+        print()
+        print("=" * 60)
+        print("GENERATING SPECIFICATION")
+        print("=" * 60)
+        specification = (
+            builder.build(
+                user_request
+            )
+        )
+        specification_json = (
+            specification.model_dump_json(
+                indent=2
+            )
+        )
+        print(specification_json)
+        print()
+        approval = input(
+            "Approve specification? "
+            "[Y]es / [N]o / [R]egenerate: "
+        ).strip().lower()
+        if approval in {"", "y", "yes"}:
+            break
+        if approval in {"r", "regenerate"}:
+            continue
 
-    specification = builder.build(user_request)
-    specification_json = specification.model_dump_json(indent=2)
-
-    print(specification_json)
-    print()
-    approval = input("Approve specification? (y/n): ").strip().lower()
-
-    if approval not in ("", "y", "yes"):
         print()
         print(
-            "SPECIFICATION REJECTED. "
-            "STOPPING IMPLEMENTATION."
+            "Specification rejected. "
+            "Stopping before implementation."
         )
         return
-    
     print()
     print("=" * 60)
     print("DEVELOPER")
