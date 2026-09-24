@@ -1,32 +1,31 @@
-from ollama import Client
-from config import OLLAMA_HOST, DEVELOPER_MODEL, REVIEWER_MODEL
+from config import DEVELOPER_MODEL, LLM_BASE_URL, REVIEWER_MODEL
+from llm import LLMClient
 
-client = Client(host=OLLAMA_HOST)
 
-def test_model(role:str,model:str) -> None:
+def check_model(role: str, model: str) -> None:
     print()
-    print(f"Testing {role} \nModel: {model}")
+    print(f"Testing {role} \nModel: {model} @ {LLM_BASE_URL}")
     print("-" * 50)
 
-    response = client.chat(
-        model=model,
-        messages=[
+    reply = LLMClient(model).chat(
+        [
             {
                 "role": "system",
-                "content": f"YOu are the {role} in a software development system."
+                "content": f"You are the {role} in a software development system.",
             },
             {
                 "role": "user",
-                "content": ("Reply with one short sentence confirming that you are available")
-            }
+                "content": "Reply with one short sentence confirming that you are available",
+            },
         ]
     )
 
-    print(response.message.content)
+    print(reply)
+
 
 def main() -> None:
-    test_model(role="Developer", model=DEVELOPER_MODEL)
-    test_model(role="Reviewer", model=REVIEWER_MODEL)
+    check_model(role="Developer", model=DEVELOPER_MODEL)
+    check_model(role="Reviewer", model=REVIEWER_MODEL)
 
 
 if __name__ == "__main__":

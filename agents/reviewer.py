@@ -1,6 +1,6 @@
-from ollama import Client
-
-from config import OLLAMA_HOST, REVIEWER_MODEL
+from config import REVIEWER_MODEL
+from llm import LLMClient
+from tools.toolsets import ReadOnlyToolset
 
 
 REVIEWER_SYSTEM_PROMPT = """
@@ -35,32 +35,32 @@ Rules:
 12. The Developer is allowed to reject your findings later if
     they are unsupported or incorrect.
 
-You will eventually receive repository access, Git diffs,
-compiler output, test results, and static-analysis results.
+You will eventually receive Git diffs, compiler output, test results,
+and static-analysis results.
+
+You can see the project's file listing. You have read-only access and
+must never modify the project's source.
 
 For now, reason only from information actually supplied to you.
 """.strip()
 
 class ReviewerAgent:
 
-    def __init__(self) -> None:
-        self.client = Client(host=OLLAMA_HOST)
-        self.model = REVIEWER_MODEL
+    def __init__(self, toolset: ReadOnlyToolset) -> None:
+        self.llm = LLMClient(REVIEWER_MODEL)
+        self.tools = toolset
 
     def ask(self, message: str) -> str:
-
-        response = self.client.chat(
-            model=self.model,
-            messages=[
+        files = "\n".join(self.tools.list_files())
+        return self.llm.chat(
+            [
                 {
                     "role": "system",
                     "content": REVIEWER_SYSTEM_PROMPT,
                 },
                 {
                     "role": "user",
-                    "content": message,
+                    "content": f"PROJECT FILES:\n{files}\n\n{message}",
                 },
-            ],
+            ]
         )
-
-        return response.message.content

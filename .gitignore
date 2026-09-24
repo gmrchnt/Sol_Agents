@@ -11,3 +11,7 @@ workspace/*
 
 smoke_test.py
 specific_test.py
+
+progress/*
+*.pdf
+*.docx

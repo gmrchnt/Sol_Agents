@@ -1,6 +1,7 @@
-from ollama import Client
+from pydantic import ValidationError
 
-from config import DEVELOPER_MODEL, OLLAMA_HOST
+from config import DEVELOPER_MODEL
+from llm import LLMClient
 from schemas.requirements import Specification
 
 SPECIFICATION_SYSTEM_PROMPT = """
@@ -39,16 +40,15 @@ but MUST NOT introduce additional behavior.
 
 For example:
 
-User:
-"raise ValueError when the denominator is zero"
+For example, given the request "store uploads in S3":
 
 Valid acceptance criterion:
-"A zero denominator raises ValueError"
+"An uploaded file is written to S3"
 
 Invalid acceptance criterion:
-"A zero denominator raises ValueError with a meaningful message"
+"An uploaded file is written to S3 and the write is retried on failure"
 
-because the user did not request an error-message requirement.
+because the user did not request retry behavior.
 
 Preserve exact constraints named by the user, including exception
 types, return formats, status codes, APIs, file formats, and other
@@ -66,20 +66,43 @@ Do not write implementation code.
 Do not propose improvements.
 Do not add future features.
 """.strip()
+class SpecificationRejected(ValueError):
+    """The model produced a specification that failed deterministic validation."""
+
+MIN_SOURCE_TEXT_WORDS = 2
+
+
+def _normalize(text: str) -> str:
+    return " ".join(text.split()).lower()
+
+
+def _cited_on_word_boundaries(prompt: str, source_text: str) -> bool:
+    """True if some occurrence of source_text in prompt does not split a word."""
+    start = prompt.find(source_text)
+    while start != -1:
+        end = start + len(source_text)
+        starts_clean = start == 0 or not (
+            prompt[start - 1].isalnum() and source_text[0].isalnum()
+        )
+        ends_clean = end == len(prompt) or not (
+            prompt[end].isalnum() and source_text[-1].isalnum()
+        )
+        if starts_clean and ends_clean:
+            return True
+        start = prompt.find(source_text, start + 1)
+    return False
+
 
 class SpecificationBuilder:
 
     def __init__(self) -> None:
-        self.client = Client(
-            host=OLLAMA_HOST
-        )
-
-        self.model = DEVELOPER_MODEL
+        self.llm = LLMClient(DEVELOPER_MODEL)
 
     def build(self, user_prompt: str) -> Specification:
         last_error: Exception | None = None
         for attempt in range(3):
             extra_instruction = ""
+
             if last_error is not None:
                 extra_instruction = f"""
                 Your previous specification was rejected by
@@ -87,12 +110,14 @@ class SpecificationBuilder:
                 ERROR:
                 {last_error}
                 Generate a corrected specification.
-                For explicit requirements, source_text MUST be an exact
-                substring copied verbatim from the user's request.
+
+                Every requirement must be explicitly supported by the
+                user's request.
+                source_text MUST be an exact substring copied verbatim
+                from the user's request.
                 """
-            response = self.client.chat(
-                model=self.model,
-                messages=[
+            content = self.llm.chat(
+                [
                     {
                         "role": "system",
                         "content": SPECIFICATION_SYSTEM_PROMPT,
@@ -113,12 +138,9 @@ class SpecificationBuilder:
                             """.strip()
                     },
                 ],
-                format=Specification.model_json_schema(),
-                options={
-                    "temperature": 0,
-                }
+                schema=Specification.model_json_schema(),
+                temperature=0,
             )
-            content = response.message.content
 
             if not content:
                 last_error = RuntimeError("Specification model returned no content.")
@@ -126,34 +148,46 @@ class SpecificationBuilder:
 
             try:
                 specification = Specification.model_validate_json(content)
-                self._validate_specification(specification)
+                self._validate_specification(specification, user_prompt)
                 return specification
-            except Exception as exc:
+            except (ValidationError, SpecificationRejected) as exc:
                 last_error = exc
         raise RuntimeError(
             "Failed to generate a valid specification after 3 attempts. "
         ) from last_error
 
-    def _validate_specification(self, specification: Specification) -> None:
-        prompt = specification.original_prompt.lower()
+    def _validate_specification(self, specification: Specification, user_prompt: str) -> None:
+        prompt = _normalize(user_prompt)
         seen_ids: set[str] = set()
 
         for req in specification.requirements:
             if req.id in seen_ids:
-                raise ValueError(f"Duplicate requirement ID: {req.id}")
+                raise SpecificationRejected(f"Duplicate requirement ID: {req.id}")
             seen_ids.add(req.id)
-            source_text = req.source_text.strip().lower()
+            source_text = _normalize(req.source_text)
 
             if not source_text:
-                raise ValueError(
+                raise SpecificationRejected(
                     f"{req.id} has no "
                     f"source_text."
                 )
+            if len(source_text.split()) < MIN_SOURCE_TEXT_WORDS:
+                raise SpecificationRejected(
+                    f"{req.id} cites only {req.source_text!r}. source_text "
+                    f"must quote at least {MIN_SOURCE_TEXT_WORDS} words from "
+                    f"the user's request that state this requirement."
+                )
             if source_text not in prompt:
-                raise ValueError(
+                raise SpecificationRejected(
                     f"{req.id} claims to be "
                     f"explicit, but its source_text "
                     f"does not appear in the original "
                     f"user prompt:\n"
                     f"{req.source_text!r}"
+                )
+            if not _cited_on_word_boundaries(prompt, source_text):
+                raise SpecificationRejected(
+                    f"{req.id} cites {req.source_text!r}, which appears in the "
+                    f"user's request only inside longer words. Quote whole "
+                    f"words."
                 )

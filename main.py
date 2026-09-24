@@ -1,11 +1,13 @@
 from agents.developer import DeveloperAgent
 from agents.reviewer import ReviewerAgent
+from llm import LLMError
 from orchestrator.specification import SpecificationBuilder
+from tools.toolsets import DeveloperToolset, ReadOnlyToolset
 
 def main() -> None:
 
-    developer = DeveloperAgent()
-    reviewer = ReviewerAgent()
+    developer = DeveloperAgent(DeveloperToolset())
+    reviewer = ReviewerAgent(ReadOnlyToolset())
     builder = SpecificationBuilder()
 
     print()
@@ -60,7 +62,8 @@ def main() -> None:
         {user_request}
         APPROVED SPECIFICATION:
         {specification_json}
-        You do not currently have filesystem access.
+        You can see the project's file listing but cannot read file
+        contents, write files, or run commands yet.
         Describe how you would implement the approved specification.
                 
         Rules:
@@ -96,7 +99,8 @@ def main() -> None:
         would implement it differently.
         - Separate actual requirement violations from optional
         improvements.
-        - You do not have access to the repository yet.
+        - You can see the project's file listing, nothing more.
+        - You have not read any file contents.
         - You have not executed any tests.
         - Clearly state what cannot currently be verified.
         """.strip()
@@ -104,4 +108,7 @@ def main() -> None:
     print(review)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except LLMError as exc:
+        raise SystemExit(f"Error: {exc}")
