@@ -1,3 +1,5 @@
+import sys
+
 from agents.developer import DeveloperAgent
 from agents.reviewer import ReviewerAgent
 from llm import LLMError
@@ -65,7 +67,7 @@ def main() -> None:
         You can see the project's file listing but cannot read file
         contents, write files, or run commands yet.
         Describe how you would implement the approved specification.
-                
+
         Rules:
         - Satisfy every listed requirement.
         - Do not add requirements that are not in the specification.
@@ -82,7 +84,7 @@ def main() -> None:
     print("REVIEWER")
     print("=" * 60)
 
-    review = reviewer.ask(
+    review = reviewer.review(
         f"""
         ORIGINAL USER REQUEST:
         {user_request}
@@ -102,12 +104,19 @@ def main() -> None:
         - You can see the project's file listing, nothing more.
         - You have not read any file contents.
         - You have not executed any tests.
-        - Clearly state what cannot currently be verified.
-        """.strip()
+        - Give every requirement a status: pass, fail or uncertain.
+          Use uncertain whenever you cannot verify it from what you
+          were given.
+        - Only report a finding when you can state concrete evidence
+          for it.
+        """.strip(),
+        specification,
+        changes_made=bool(reviewer.tools.git_diff().stdout.strip()),
     )
-    print(review)
+    print(review.model_dump_json(indent=2))
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     try:
         main()
     except LLMError as exc:

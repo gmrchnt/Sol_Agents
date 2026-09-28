@@ -4,7 +4,7 @@ from tools.toolsets import DeveloperToolset, ReadOnlyToolset
 
 WRITE_NAMES = ["write_file", "apply_patch", "delete_file", "run_command"]
 
-READ_NAMES = ["list_files", "read_file", "search_files"]
+READ_NAMES = ["list_files", "read_file", "search_files", "git_status", "git_diff", "git_recent_commits"]
 
 
 @pytest.mark.parametrize("name", WRITE_NAMES)

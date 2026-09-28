@@ -1,5 +1,10 @@
+from pydantic import ValidationError
+
 from config import REVIEWER_MODEL
 from llm import LLMClient
+from orchestrator.review import ReviewRejected, validate_review
+from schemas.requirements import Specification
+from schemas.review import Review
 from tools.toolsets import ReadOnlyToolset
 
 
@@ -44,6 +49,7 @@ must never modify the project's source.
 For now, reason only from information actually supplied to you.
 """.strip()
 
+
 class ReviewerAgent:
 
     def __init__(self, toolset: ReadOnlyToolset) -> None:
@@ -51,16 +57,42 @@ class ReviewerAgent:
         self.tools = toolset
 
     def ask(self, message: str) -> str:
+        return self.llm.chat(self._messages(message))
+
+    def review(
+        self, message: str, specification: Specification, *, changes_made: bool
+    ) -> Review:
+        last_error: Exception | None = None
+
+        for _ in range(3):
+            retry = ""
+            if last_error is not None:
+                retry = (
+                    "\n\nYour previous review was rejected by deterministic "
+                    f"validation.\nERROR:\n{last_error}\n"
+                    "Produce a corrected review."
+                )
+
+            content = self.llm.chat(
+                self._messages(message + retry),
+                schema=Review.model_json_schema(),
+                temperature=0,
+            )
+
+            try:
+                review = Review.model_validate_json(content)
+                validate_review(review, specification, changes_made=changes_made)
+                return review
+            except (ValidationError, ReviewRejected) as exc:
+                last_error = exc
+
+        raise RuntimeError(
+            "Failed to produce a valid review after 3 attempts."
+        ) from last_error
+
+    def _messages(self, message: str) -> list[dict[str, str]]:
         files = "\n".join(self.tools.list_files())
-        return self.llm.chat(
-            [
-                {
-                    "role": "system",
-                    "content": REVIEWER_SYSTEM_PROMPT,
-                },
-                {
-                    "role": "user",
-                    "content": f"PROJECT FILES:\n{files}\n\n{message}",
-                },
-            ]
-        )
+        return [
+            {"role": "system", "content": REVIEWER_SYSTEM_PROMPT},
+            {"role": "user", "content": f"PROJECT FILES:\n{files}\n\n{message}"},
+        ]

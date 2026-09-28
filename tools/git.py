@@ -1,5 +1,6 @@
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 from tools.project import get_project_path
 
@@ -98,25 +99,21 @@ def _run_git(*args: str) -> GitResult:
 
 
 def is_git_repository() -> bool:
-    result = _run_git(
-        "rev-parse",
-        "--is-inside-work-tree",
-    )
-
-    return (
-        result.ok
-        and result.stdout.strip() == "true"
-    )
+    result = _run_git("rev-parse", "--show-toplevel")
+    if not result.ok:
+        return False
+    toplevel = Path(result.stdout.strip()).resolve()
+    return toplevel == get_project_path().resolve()
 
 
 def require_git_repository() -> None:
     if not is_git_repository():
         raise GitError(
-            f"Not a Git repository: "
+            f"PROJECT_PATH must be the root of a Git repository: "
             f"{get_project_path()}"
         )
 
-
+    
 def status() -> GitResult:
     require_git_repository()
 
