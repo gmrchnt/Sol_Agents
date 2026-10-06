@@ -4,7 +4,9 @@ from tools.project import (
     list_project_files,
     read_project_file,
     search_project_files,
+    write_project_file,
 )
+from tools.testing import SuiteRun, run_tests
 
 from tools.git import (
     status,
@@ -38,4 +40,10 @@ class ReadOnlyToolset:
 
 
 class DeveloperToolset(ReadOnlyToolset):
-    """Everything the Reviewer can do. Write access is added here in M3."""
+    """Everything the Reviewer can do, plus writing files and running tests."""
+
+    def write_file(self, relative_path: str | Path, content: str) -> str:
+        return write_project_file(Path(relative_path), content)
+
+    def run_tests(self) -> SuiteRun:
+        return run_tests()

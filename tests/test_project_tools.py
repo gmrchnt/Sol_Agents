@@ -12,6 +12,7 @@ from tools.project import (
     read_project_file,
     resolve_project_path,
     search_project_files,
+    write_project_file,
 )
 
 
@@ -165,3 +166,48 @@ def test_search_returns_empty_for_blank_query(project: Path) -> None:
 def test_search_skips_undecodable_files(project: Path) -> None:
     (project / "blob.bin").write_bytes(b"\xff\xfe\x00binary")
     assert all(r["file"] != "blob.bin" for r in search_project_files("binary"))
+
+
+def test_write_creates_new_file(project: Path) -> None:
+    message = write_project_file(Path("new.py"), "x = 1\n")
+    assert (project / "new.py").read_bytes() == b"x = 1\n"
+    assert message.startswith("created new.py")
+
+
+def test_write_replaces_existing_file(project: Path) -> None:
+    write_project_file(Path("calculator.py"), "y = 2\n")
+    assert (project / "calculator.py").read_text(encoding="utf-8") == "y = 2\n"
+
+
+def test_write_creates_missing_folders(project: Path) -> None:
+    write_project_file(Path("pkg/sub/mod.py"), "")
+    assert (project / "pkg" / "sub" / "mod.py").is_file()
+
+
+def test_write_keeps_unix_newlines(project: Path) -> None:
+    write_project_file(Path("nl.py"), "a\nb\n")
+    assert b"\r\n" not in (project / "nl.py").read_bytes()
+
+
+@pytest.mark.parametrize("target", [".git/hooks/pre-commit", ".GIT/config"])
+def test_write_refuses_git_directory(project: Path, target: str) -> None:
+    with pytest.raises(ProjectAccessError):
+        write_project_file(Path(target), "evil")
+
+
+def test_write_cannot_escape_root(project: Path) -> None:
+    with pytest.raises(ProjectAccessError):
+        write_project_file(Path("../outside.py"), "x")
+
+
+def test_write_refuses_directory(project: Path) -> None:
+    with pytest.raises(ProjectAccessError):
+        write_project_file(Path("pkg"), "x")
+
+
+def test_write_refuses_oversized_content(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tools.project, "MAX_FILE_SIZE", 10)
+    with pytest.raises(ValueError):
+        write_project_file(Path("big.py"), "x" * 100)

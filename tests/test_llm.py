@@ -101,3 +101,16 @@ def test_slow_model_raises_did_not_reply() -> None:
     client, _ = _client(stall)
     with pytest.raises(LLMError, match="did not reply in time"):
         client.chat(MESSAGES)
+
+
+def test_complete_sends_tools_and_returns_message() -> None:
+    tools = [{"type": "function", "function": {"name": "list_files",
+              "parameters": {"type": "object", "properties": {}}}}]
+    message = {"role": "assistant", "content": None, "tool_calls": [
+        {"id": "c1", "type": "function",
+         "function": {"name": "list_files", "arguments": "{}"}}]}
+    client, seen = _client(
+        lambda r: httpx.Response(200, json={"choices": [{"message": message}]})
+    )
+    assert client.complete(MESSAGES, tools=tools) == message
+    assert json.loads(seen[0].content)["tools"] == tools

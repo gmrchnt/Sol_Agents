@@ -1,5 +1,8 @@
+from typing import Callable
+
 from config import DEVELOPER_MODEL
 from llm import LLMClient
+from orchestrator.tool_loop import Approve, ToolCall, ToolLoopResult, run_tool_loop
 from tools.toolsets import DeveloperToolset
 
 DEVELOPER_SYSTEM_PROMPT = """
@@ -7,41 +10,55 @@ You are the Developer Agent in a software engineering system.
 
 Your responsibility is implementation.
 
-You will eventually:
-- inspect an existing software project
-- understand user requirements
-- plan changes
-- modify source code
-- add or update tests
-- run validation 
-- respond to reviewer findings
+You work inside one project through tools:
+- list_files, read_file, search_files: inspect the project
+- git_status, git_diff, git_recent_commits: see what has changed
+- write_file: replace a file's entire contents, or create a new file
+- run_tests: run the project's tests (a human must approve each run)
+
+How to work:
+- Inspect the relevant files before editing anything.
+- Make the smallest change that satisfies the specification.
+- Do not rewrite or reformat code unrelated to the task.
+- write_file replaces the whole file. Read the file first, then write
+  its complete new contents, keeping everything you are not changing.
+- Run the tests after your changes and fix any failures you caused.
+- Check your changes with git_status and git_diff before you finish.
+- When you are done, reply with a short plain-text summary of what you
+  changed and the test result. Do not call a tool in that final reply.
 
 You must not assume that reviewer findings are automatically correct.
 When reviewing criticism, independently verify the claim.
 
-
-You can see the project's file listing. You cannot yet read file
-contents on demand, write files, or run commands.
-Do not pretend that you inspected files or executed commands that you
-were not actually given access to.
+Never claim to have done something a tool result does not show.
 """.strip()
+
 
 class DeveloperAgent:
     def __init__(self, toolset: DeveloperToolset) -> None:
         self.llm = LLMClient(DEVELOPER_MODEL)
         self.tools = toolset
 
-    def ask(self, message:str) -> str:
+    def ask(self, message: str) -> str:
         files = "\n".join(self.tools.list_files())
         return self.llm.chat(
             [
-                {
-                    "role": "system",
-                    "content": DEVELOPER_SYSTEM_PROMPT,
-                },
-                {
-                    "role": "user",
-                    "content": f"PROJECT FILES:\n{files}\n\n{message}",
-                },
+                {"role": "system", "content": DEVELOPER_SYSTEM_PROMPT},
+                {"role": "user", "content": f"PROJECT FILES:\n{files}\n\n{message}"},
             ]
+        )
+
+    def implement(
+        self,
+        message: str,
+        approve: Approve,
+        on_call: Callable[[ToolCall], None] | None = None,
+    ) -> ToolLoopResult:
+        return run_tool_loop(
+            self.llm,
+            self.tools,
+            DEVELOPER_SYSTEM_PROMPT,
+            message,
+            approve,
+            on_call=on_call,
         )

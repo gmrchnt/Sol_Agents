@@ -1,17 +1,13 @@
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-
 from tools.project import get_project_path
-
 
 GIT_TIMEOUT = 30
 MAX_OUTPUT_BYTES = 200_000
 
-
 class GitError(Exception):
     """Raised when Git cannot be run against the project."""
-
 
 @dataclass(frozen=True)
 class GitResult:
@@ -29,7 +25,6 @@ class GitResult:
     @property
     def truncated(self) -> bool:
         return self.stdout_truncated or self.stderr_truncated
-
 
 def _truncate(text: str) -> tuple[str, bool]:
     encoded = text.encode("utf-8")
@@ -49,7 +44,6 @@ def _truncate(text: str) -> tuple[str, bool]:
         f"... [output truncated, {omitted} bytes omitted]",
         True,
     )
-
 
 def _run_git(*args: str) -> GitResult:
     command = [
@@ -97,7 +91,6 @@ def _run_git(*args: str) -> GitResult:
         stderr_truncated=stderr_truncated,
     )
 
-
 def is_git_repository() -> bool:
     result = _run_git("rev-parse", "--show-toplevel")
     if not result.ok:
@@ -105,14 +98,12 @@ def is_git_repository() -> bool:
     toplevel = Path(result.stdout.strip()).resolve()
     return toplevel == get_project_path().resolve()
 
-
 def require_git_repository() -> None:
     if not is_git_repository():
         raise GitError(
             f"PROJECT_PATH must be the root of a Git repository: "
             f"{get_project_path()}"
         )
-
     
 def status() -> GitResult:
     require_git_repository()
@@ -121,8 +112,8 @@ def status() -> GitResult:
         "status",
         "--porcelain=v1",
         "--branch",
+        "--untracked-files=all",
     )
-
 
 def diff(
     base: str | None = "HEAD",
@@ -145,7 +136,6 @@ def diff(
 
     return _run_git(*args)
 
-
 def recent_commits(
     count: int = 10,
 ) -> GitResult:
@@ -163,7 +153,6 @@ def recent_commits(
         "--no-color",
         "--no-decorate",
     )
-
 
 def current_commit() -> str:
     require_git_repository()

@@ -44,6 +44,26 @@ class LLMClient:
                 "json_schema": {"name": "response", "schema": schema},
             }
 
+        return self._send(payload).get("content") or ""
+
+    def complete(
+        self,
+        messages: list[dict[str, object]],
+        *,
+        tools: list[dict[str, object]],
+        temperature: float | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+
+        return self._send(payload)
+
+    def _send(self, payload: dict[str, object]) -> dict[str, object]:
         try:
             response = self._http.post("chat/completions", json=payload)
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
@@ -68,10 +88,15 @@ class LLMClient:
             )
 
         try:
-            content = response.json()["choices"][0]["message"]["content"]
+            message = response.json()["choices"][0]["message"]
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise LLMError(
                 f"Unexpected reply from model server: {response.text[:500]}"
             ) from exc
 
-        return content or ""
+        if not isinstance(message, dict):
+            raise LLMError(
+                f"Unexpected reply from model server: {response.text[:500]}"
+            )
+
+        return message

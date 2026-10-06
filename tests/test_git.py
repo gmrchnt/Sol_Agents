@@ -105,3 +105,8 @@ def test_truncation_is_flagged_per_stream(
     assert result.stdout_truncated
     assert not result.stderr_truncated
     assert "output truncated" in result.stdout
+
+def test_status_lists_new_files_inside_new_folders(repo: Path) -> None:
+    (repo / "pkg").mkdir()
+    (repo / "pkg" / "mod.py").write_text("", encoding="utf-8")
+    assert "?? pkg/mod.py" in git.status().stdout

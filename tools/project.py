@@ -59,6 +59,37 @@ def read_project_file(relative_path: Path) -> str:
         encoding="utf-8"
     )
 
+PROTECTED_PARTS = {".git"}
+
+
+def write_project_file(relative_path:Path,content:str) -> str:
+    file_path = resolve_project_path(relative_path)
+    root = get_project_path().resolve()
+
+    if file_path == root:
+        raise ProjectAccessError("Cannot write to the project root itself.")
+
+    parts = file_path.relative_to(root).parts
+    if any(part.lower() in PROTECTED_PARTS for part in parts):
+        raise ProjectAccessError(f"Writing inside .git is not allowed: {relative_path}")
+
+    if file_path.is_dir():
+        raise ProjectAccessError(f"{relative_path} is a directory.")
+
+    data = content.encode("utf-8")
+    if len(data) > MAX_FILE_SIZE:
+        raise ValueError(
+            f"Refusing to write {len(data)} bytes; maximum is {MAX_FILE_SIZE} bytes."
+        )
+
+    existed = file_path.exists()
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    # bytes, so Windows doesn't silently rewrite \n as \r\n
+    file_path.write_bytes(data)
+
+    action = "updated" if existed else "created"
+    return f"{action} {file_path.relative_to(root).as_posix()} ({len(data)} bytes)"
+
 def search_project_files(query: str) -> list[dict[str, object]]:
     if not query.strip():
         return []
