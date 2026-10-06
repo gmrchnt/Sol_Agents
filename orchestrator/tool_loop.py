@@ -8,7 +8,7 @@ from tools.project import ProjectAccessError
 from tools.testing import SuiteRun, SuiteRunError
 
 MAX_TOOL_STEPS = 20
-NEEDS_APPROVAL = {"run_tests"}
+NEEDS_APPROVAL = {"run_tests", "run_review_tests"}
 RECOVERABLE_ERRORS = (ProjectAccessError, OSError, ValueError, GitError, SuiteRunError)
 
 Approve = Callable[[str, dict], bool]
@@ -57,7 +57,7 @@ TOOL_SPECS: dict[str, dict] = {
             ["query"],
         ),
         _tool("git_status", "Show which files have changed since the last commit."),
-        _tool("git_diff", "Show the line-by-line changes to tracked files since the last commit."),
+        _tool("git_diff", "Show the line-by-line changes made since this run started."),
         _tool(
             "git_recent_commits",
             "Show recent commit messages.",
@@ -80,6 +80,22 @@ TOOL_SPECS: dict[str, dict] = {
             "run_tests",
             "Run the project's pytest suite and return its output. "
             "A human must approve each run.",
+        ),
+        _tool(
+            "write_review_test",
+            "Create or replace an adversarial pytest file in your private review "
+            "area, outside the project. Name it like test_something.py. It can "
+            "import the project's modules by name, e.g. `import calculator`.",
+            {
+                "filename": {"type": "string"},
+                "content": {"type": "string", "description": "The complete test file."},
+            },
+            ["filename", "content"],
+        ),
+        _tool(
+            "run_review_tests",
+            "Run the tests in your review area against the project and return "
+            "the output. A human must approve each run.",
         ),
     ]
 }
@@ -139,6 +155,8 @@ def _format(result: object) -> str:
         text = result.stdout if result.ok else result.stderr
         return f"exit code {result.returncode}\n{text}".rstrip()
     if isinstance(result, SuiteRun):
+        if result.no_tests:
+            return f"no tests found (exit code {result.returncode})\n{result.output}".rstrip()
         verdict = "PASSED" if result.passed else "FAILED"
         return f"tests {verdict} (exit code {result.returncode})\n{result.output}".rstrip()
     return json.dumps(result, indent=2)
@@ -216,5 +234,5 @@ def run_tool_loop(
             )
 
     raise ToolLoopLimitError(
-        f"The Developer made {max_steps} tool calls without finishing."
+        f"The agent made {max_steps} rounds of tool calls without finishing."
     )

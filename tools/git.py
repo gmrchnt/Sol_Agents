@@ -136,6 +136,24 @@ def diff(
 
     return _run_git(*args)
 
+def changed_paths(base: str) -> list[tuple[str, str]]:
+    """(status letter, path) for every file that differs from `base`."""
+    require_git_repository()
+    if base.startswith("-"):
+        raise GitError(f"Invalid base ref: {base!r}")
+
+    result = _run_git("diff", "--name-status", "--no-renames", "--no-color", base)
+    if not result.ok:
+        raise GitError(f"Could not list changes since {base}: {result.stderr.strip()}")
+
+    changes = []
+    for line in result.stdout.splitlines():
+        letter, _, path = line.partition("\t")
+        if path:
+            changes.append((letter, path))
+    return changes
+
+
 def recent_commits(
     count: int = 10,
 ) -> GitResult:

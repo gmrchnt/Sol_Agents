@@ -2,7 +2,7 @@ import pytest
 
 from tools.toolsets import DeveloperToolset, ReadOnlyToolset
 
-WRITE_NAMES = ["write_file", "apply_patch", "delete_file", "run_command", "run_tests"]
+WRITE_NAMES = ["write_file", "apply_patch", "delete_file", "run_command", "run_tests", "write_review_test", "run_review_tests"]
 
 READ_NAMES = ["list_files", "read_file", "search_files", "git_status", "git_diff", "git_recent_commits"]
 

@@ -2,11 +2,13 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from tools.git import _truncate
 from tools.project import get_project_path
 
 TEST_TIMEOUT = 120
+NO_TESTS_COLLECTED = 5
 
 
 class SuiteRunError(Exception):
@@ -24,8 +26,13 @@ class SuiteRun:
     def passed(self) -> bool:
         return self.returncode == 0
 
+    @property
+    def no_tests(self) -> bool:
+        return self.returncode == NO_TESTS_COLLECTED
 
-def run_tests() -> SuiteRun:
+
+def run_tests(target: Path | None = None) -> SuiteRun:
+    """Run pytest from the project root; `target` limits it to one folder."""
     command = [
         sys.executable,
         "-m",
@@ -35,6 +42,9 @@ def run_tests() -> SuiteRun:
         "-p",
         "no:cacheprovider",
     ]
+    if target is not None:
+        command.append(str(target))
+
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
 
     try:
