@@ -2,7 +2,11 @@ from typing import Callable
 
 from config import DEVELOPER_MODEL
 from llm import LLMClient
+from orchestrator.decisions import ResponseRejected, validate_developer_response
+from orchestrator.structured import request_structured
 from orchestrator.tool_loop import Approve, ToolCall, ToolLoopResult, run_tool_loop
+from schemas.decisions import DeveloperResponse, HumanDecision
+from schemas.review import Review
 from tools.toolsets import DeveloperToolset
 
 DEVELOPER_SYSTEM_PROMPT = """
@@ -39,13 +43,20 @@ class DeveloperAgent:
         self.llm = LLMClient(DEVELOPER_MODEL)
         self.tools = toolset
 
-    def ask(self, message: str) -> str:
-        files = "\n".join(self.tools.list_files())
-        return self.llm.chat(
-            [
-                {"role": "system", "content": DEVELOPER_SYSTEM_PROMPT},
-                {"role": "user", "content": f"PROJECT FILES:\n{files}\n\n{message}"},
-            ]
+    def adjudicate(
+        self,
+        message: str,
+        review: Review,
+        human_decisions: list[HumanDecision],
+    ) -> DeveloperResponse:
+        return request_structured(
+            self.llm,
+            DEVELOPER_SYSTEM_PROMPT,
+            message,
+            DeveloperResponse,
+            lambda response: validate_developer_response(response, review, human_decisions),
+            ResponseRejected,
+            "response",
         )
 
     def implement(
