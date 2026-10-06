@@ -187,3 +187,60 @@ def current_commit() -> str:
         )
 
     return result.stdout.strip()
+
+
+# --- Orchestrator-only operations -------------------------------------------
+# These change the repository, so they are deliberately absent from every
+# toolset: only the orchestrator branches, commits and merges.
+
+SOL_IDENTITY = ("-c", "user.name=Sol_Agents", "-c", "user.email=sol-agents@localhost")
+
+
+def _check_ref_name(name: str) -> None:
+    if not name or name.startswith("-"):
+        raise GitError(f"Invalid branch name: {name!r}")
+
+
+def _must(result: GitResult, what: str) -> GitResult:
+    if not result.ok:
+        raise GitError(f"Could not {what}: {result.stderr.strip() or result.stdout.strip()}")
+    return result
+
+
+def current_branch() -> str:
+    require_git_repository()
+    result = _must(_run_git("rev-parse", "--abbrev-ref", "HEAD"), "read the current branch")
+    branch = result.stdout.strip()
+    if branch == "HEAD":
+        raise GitError("The project is in detached HEAD state; check out a branch first.")
+    return branch
+
+
+def create_branch(name: str) -> None:
+    """Create `name` at the current commit and switch to it."""
+    require_git_repository()
+    _check_ref_name(name)
+    _must(_run_git("switch", "-c", name), f"create branch {name}")
+
+
+def switch_branch(name: str) -> None:
+    require_git_repository()
+    _check_ref_name(name)
+    _must(_run_git("switch", name), f"switch to {name}")
+
+
+def commit_all(message: str) -> str | None:
+    """Stage everything and commit it. Returns the new commit, or None if nothing changed."""
+    require_git_repository()
+    _must(_run_git("add", "-A"), "stage changes")
+    if not _run_git("status", "--porcelain").stdout.strip():
+        return None
+    _must(_run_git(*SOL_IDENTITY, "commit", "-q", "-m", message), "commit")
+    return current_commit()
+
+
+def merge_fast_forward(branch: str) -> None:
+    """Merge `branch` into the current branch only if no merge commit is needed."""
+    require_git_repository()
+    _check_ref_name(branch)
+    _must(_run_git("merge", "--ff-only", branch), f"fast-forward to {branch}")

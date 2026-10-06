@@ -7,6 +7,12 @@ class ConsoleUI:
     def ask(self, prompt: str) -> str:
         return input(prompt)
 
+    def heading(self, title: str) -> None:
+        self.say()
+        self.say("=" * 60)
+        self.say(title)
+        self.say("=" * 60)
+
     def confirm(self, question: str, default: bool = False) -> bool:
         hint = "[Y/n]" if default else "[y/N]"
         while True:

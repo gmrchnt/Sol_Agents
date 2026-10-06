@@ -110,3 +110,28 @@ def test_status_lists_new_files_inside_new_folders(repo: Path) -> None:
     (repo / "pkg").mkdir()
     (repo / "pkg" / "mod.py").write_text("", encoding="utf-8")
     assert "?? pkg/mod.py" in git.status().stdout
+
+
+@pytest.mark.parametrize("name", ["", "-D", "--force"])
+def test_branch_operations_reject_option_like_names(repo: Path, name: str) -> None:
+    with pytest.raises(GitError):
+        git.create_branch(name)
+
+
+def test_commit_all_returns_none_when_nothing_changed(repo: Path) -> None:
+    assert git.commit_all("nothing") is None
+
+
+def test_commit_all_records_new_files_as_sol_agents(repo: Path) -> None:
+    (repo / "new.py").write_text("x = 1\n", encoding="utf-8")
+    commit = git.commit_all("add new")
+    assert commit == git.current_commit()
+    author = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%an"],
+                            capture_output=True, text=True).stdout.strip()
+    assert author == "Sol_Agents"
+
+
+def test_detached_head_is_reported(repo: Path) -> None:
+    _git(repo, "checkout", "-q", "--detach")
+    with pytest.raises(GitError, match="detached"):
+        git.current_branch()

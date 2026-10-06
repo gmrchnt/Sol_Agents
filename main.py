@@ -1,188 +1,91 @@
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 from agents.developer import DeveloperAgent
 from agents.reviewer import ReviewerAgent
 from config import PROJECT_PATH
 from llm import LLMError
+from orchestrator.console import ConsoleUI
+from orchestrator.runlog import RunLog, new_run_id
 from orchestrator.specification import SpecificationBuilder
-from orchestrator.tool_loop import ToolCall, ToolLoopLimitError
-from tools.git import GitError, current_commit, diff, status
-from tools.project import ProjectAccessError, read_project_file
-from tools.testing import SuiteRun, SuiteRunError, run_tests
-from tools.toolsets import DeveloperToolset, ReadOnlyToolset
+from orchestrator.structured import StructuredOutputError
+from orchestrator.tool_loop import ToolLoopLimitError
+from orchestrator.workflow import ProjectRun
+from schemas.requirements import Specification
+from schemas.state import ProjectState
+from tools.git import GitError, current_branch, current_commit, status
+from tools.testing import SuiteRunError
+from tools.toolsets import DeveloperToolset, ReviewerToolset
 
 
-def banner(title: str) -> None:
-    print()
-    print("=" * 60)
-    print(title)
-    print("=" * 60)
-
-
-def confirm(question: str) -> bool:
-    return input(f"{question} [y/N]: ").strip().lower() in {"y", "yes"}
-
-
-def approve_tool(name: str, arguments: dict) -> bool:
-    return confirm(
-        f"\nThe Developer wants to run {name}. This executes project code "
-        f"on this machine without a sandbox. Allow?"
-    )
-
-
-def show_call(call: ToolCall) -> None:
-    arguments = call.arguments if len(call.arguments) <= 80 else call.arguments[:77] + "..."
-    first_line = call.result.splitlines()[0] if call.result else ""
-    print(f"  -> {call.name}({arguments})")
-    print(f"     {first_line[:100]}")
-
-
-def changed_files() -> list[str]:
-    return status().stdout.splitlines()[1:]
-
-
-def collect_evidence(base_commit: str, changes: list[str], tests: SuiteRun | None) -> str:
-    sections = [
-        f"GIT STATUS since {base_commit[:8]}:\n" + ("\n".join(changes) or "(no changes)")
-    ]
-
-    patch = diff(base_commit)
-    sections.append("GIT DIFF:\n" + (patch.stdout.strip() or "(empty)"))
-
-    for line in changes:
-        if line.startswith("?? "):
-            path = line[3:]
-            try:
-                content = read_project_file(Path(path))
-            except (ProjectAccessError, OSError, ValueError) as exc:
-                content = f"(could not read: {exc})"
-            sections.append(f"NEW FILE {path}:\n{content}")
-
-    if tests is None:
-        sections.append("TEST RESULTS: not run")
-    else:
-        verdict = "PASSED" if tests.passed else "FAILED"
-        sections.append(
-            f"TEST RESULTS: {verdict} (exit code {tests.returncode})\n{tests.output}"
+def agree_on_specification(ui: ConsoleUI, user_request: str) -> Specification | None:
+    builder = SpecificationBuilder()
+    while True:
+        ui.heading("GENERATING SPECIFICATION")
+        specification = builder.build(user_request)
+        ui.say(specification.model_dump_json(indent=2))
+        ui.say()
+        choice = ui.choose(
+            "Approve specification? [Y]es / [N]o / [R]egenerate: ",
+            {"y": "yes", "yes": "yes", "n": "no", "no": "no", "r": "regenerate",
+             "regenerate": "regenerate"},
+            default="y",
         )
-
-    return "\n\n".join(sections)
+        if choice in {"y", "yes"}:
+            return specification
+        if choice in {"n", "no"}:
+            return None
 
 
 def main() -> None:
+    ui = ConsoleUI()
 
-    developer = DeveloperAgent(DeveloperToolset())
-    reviewer = ReviewerAgent(ReadOnlyToolset())
-    builder = SpecificationBuilder()
-
-    uncommitted = changed_files()
+    uncommitted = status().stdout.splitlines()[1:]
     if uncommitted:
-        print(f"{PROJECT_PATH} has uncommitted changes:")
+        ui.say(f"{PROJECT_PATH} has uncommitted changes:")
         for line in uncommitted:
-            print(f"  {line}")
-        print("Commit or stash them first, so the review sees only this run's work.")
+            ui.say(f"  {line}")
+        ui.say("Commit or stash them first, so the review sees only this run's work.")
         return
+    original_branch = current_branch()
     base_commit = current_commit()
 
-    banner("USER REQUEST")
-    user_request = input("Enter a simple software request: ")
+    ui.heading("USER REQUEST")
+    user_request = ui.ask_required("Enter a simple software request: ")
 
-    while True:
-        banner("GENERATING SPECIFICATION")
-        specification = builder.build(user_request)
-        specification_json = specification.model_dump_json(indent=2)
-        print(specification_json)
-        print()
-        approval = input(
-            "Approve specification? "
-            "[Y]es / [N]o / [R]egenerate: "
-        ).strip().lower()
-        if approval in {"", "y", "yes"}:
-            break
-        if approval in {"r", "regenerate"}:
-            continue
-
-        print()
-        print("Specification rejected. Stopping before implementation.")
+    specification = agree_on_specification(ui, user_request)
+    if specification is None:
+        ui.say("\nSpecification rejected. Stopping before implementation.")
         return
 
-    banner("DEVELOPER")
-    print(f"Working in {PROJECT_PATH}, starting from commit {base_commit[:8]}.")
-
-    result = developer.implement(
-        f"""
-        ORIGINAL USER REQUEST:
-        {user_request}
-        APPROVED SPECIFICATION:
-        {specification_json}
-        Implement the approved specification in the project.
-
-        Rules:
-        - Satisfy every listed requirement.
-        - Do not add requirements that are not in the specification.
-        - Do not change files the specification does not need changed.
-        """.strip(),
-        approve=approve_tool,
-        on_call=show_call,
+    run_id = new_run_id()
+    state = ProjectState(
+        run_id=run_id,
+        user_prompt=user_request,
+        specification=specification,
+        project_path=str(PROJECT_PATH),
+        original_branch=original_branch,
+        run_branch=f"sol/run-{run_id}",
+        base_commit=base_commit,
     )
-    print()
-    print(result.final_text)
+    log = RunLog(run_id)
+    log.save_state(state)
+    log.event("specification_approved")
 
-    banner("VALIDATION")
-    changes = changed_files()
-    if changes:
-        for line in changes:
-            print(f"  {line}")
-    else:
-        print("  No files changed.")
-
-    tests = None
-    if changes and confirm("\nRun the tests independently to check the Developer's work?"):
-        tests = run_tests()
-        print(f"\nTests {'PASSED' if tests.passed else 'FAILED'} (exit code {tests.returncode})")
-        print(tests.output)
-
-    banner("REVIEWER")
-    evidence = collect_evidence(base_commit, changes, tests)
-
-    review = reviewer.review(
-        f"""
-        ORIGINAL USER REQUEST:
-        {user_request}
-        APPROVED SPECIFICATION:
-        {specification_json}
-        DEVELOPER SUMMARY (a claim, not evidence):
-        {result.final_text}
-        EVIDENCE (collected by the orchestrator, not by the Developer):
-        {evidence}
-
-        Review the Developer's work against the APPROVED SPECIFICATION.
-
-        Important rules:
-        - The approved specification defines the required behavior.
-        - Do not invent additional requirements.
-        - Something is not a defect merely because you personally
-        would implement it differently.
-        - Separate actual requirement violations from optional
-        improvements.
-        - Base every status on the EVIDENCE section. The Developer
-          summary is a claim and proves nothing.
-        - Mark a requirement pass only when the diff, new files or test
-          results show it is met. Otherwise use fail or uncertain.
-        - Only report a finding when you can point to concrete evidence,
-          such as a line in the diff or a failing test.
-        - Do not report missing evidence as a finding; use uncertain.
-        """.strip(),
-        specification,
-        changes_made=bool(changes),
-    )
-    print(review.model_dump_json(indent=2))
+    review_dir = Path(tempfile.mkdtemp(prefix=f"sol-review-{run_id}-"))
+    try:
+        developer = DeveloperAgent(DeveloperToolset(base=base_commit))
+        reviewer = ReviewerAgent(ReviewerToolset(review_dir, base=base_commit))
+        ProjectRun(state, developer, reviewer, ui, log).execute()
+    finally:
+        shutil.rmtree(review_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     try:
         main()
-    except (LLMError, GitError, SuiteRunError, ToolLoopLimitError) as exc:
+    except (LLMError, GitError, SuiteRunError, ToolLoopLimitError, StructuredOutputError) as exc:
         raise SystemExit(f"Error: {exc}")
