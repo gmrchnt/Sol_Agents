@@ -2,6 +2,7 @@ from pydantic import ValidationError
 
 from config import DEVELOPER_MODEL
 from llm import LLMClient
+from orchestrator.structured import StructuredOutputError
 from schemas.requirements import Specification
 
 SPECIFICATION_SYSTEM_PROMPT = """
@@ -37,8 +38,6 @@ Every requirement must:
 
 Acceptance criteria may make an explicit requirement testable,
 but MUST NOT introduce additional behavior.
-
-For example:
 
 For example, given the request "store uploads in S3":
 
@@ -152,8 +151,9 @@ class SpecificationBuilder:
                 return specification
             except (ValidationError, SpecificationRejected) as exc:
                 last_error = exc
-        raise RuntimeError(
+        raise StructuredOutputError(
             "Failed to generate a valid specification after 3 attempts. "
+            f"Last problem: {last_error}"
         ) from last_error
 
     def _validate_specification(self, specification: Specification, user_prompt: str) -> None:
