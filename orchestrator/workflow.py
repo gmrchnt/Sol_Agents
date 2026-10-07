@@ -7,6 +7,7 @@ from orchestrator.human import describe_finding, human_review, resolve_disputes
 from orchestrator.review import BLOCKING_SEVERITIES
 from orchestrator.runlog import RunLog
 from orchestrator.tool_loop import Approve, ToolCall, ToolLoopResult
+from orchestrator.try_it import try_program
 from orchestrator.validation import run_validation
 from tools.dependencies import DependencyError
 from tools.testing import (
@@ -269,13 +270,19 @@ class ProjectRun:
             for finding in review.findings:
                 self.ui.say(describe_finding(finding))
 
-        options = {"a": "accept", "s": "stop"}
-        prompt = "[a]ccept the work  [s]top without accepting  (Enter = accept): "
+        options = {"a": "accept", "t": "try", "s": "stop"}
+        prompt = "[a]ccept the work  [t]ry it yourself  [s]top without accepting  (Enter = accept): "
         if review.findings:
             options["i"] = "iterate"
-            prompt = ("[a]ccept the work  [i]terate on the optional findings  [s]top  "
-                      "(Enter = accept): ")
-        return options[self.ui.choose(prompt, options, default="a")]
+            prompt = ("[a]ccept the work  [t]ry it yourself  [i]terate on the optional "
+                      "findings  [s]top  (Enter = accept): ")
+
+        while True:
+            choice = options[self.ui.choose(prompt, options, default="a")]
+            if choice != "try":
+                return choice
+            try_program(self.ui, self.log, self.state.base_commit)
+            self.ui.say()
 
     def _close(self) -> None:
         state = self.state

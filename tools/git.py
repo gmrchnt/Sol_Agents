@@ -244,3 +244,14 @@ def merge_fast_forward(branch: str) -> None:
     require_git_repository()
     _check_ref_name(branch)
     _must(_run_git("merge", "--ff-only", branch), f"fast-forward to {branch}")
+
+
+def restore_paths(paths: list[str]) -> None:
+    """Put tracked files back exactly as they are in the last commit."""
+    require_git_repository()
+    if not paths:
+        return
+    _must(
+        _run_git("restore", "--source=HEAD", "--staged", "--worktree", "--", *paths),
+        "restore files",
+    )

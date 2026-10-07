@@ -259,6 +259,14 @@ def test_state_and_events_are_logged(repo: Path, tmp_path: Path) -> None:
     assert "checkpoint" in kinds and "review" in kinds
 
 
+def test_trying_it_returns_to_the_final_choice(repo: Path, tmp_path: Path) -> None:
+    run, ui = _run(repo, tmp_path, FakeDeveloper(repo, [{"calculator.py": MULTIPLY}]),
+                   FakeReviewer([_review()]), ["n", "t", "c", "a", "n"])
+    state = run.execute()
+    assert state.status == "complete"
+    assert ui.answers == []
+
+
 def test_enter_approves_a_tool_run(repo: Path, tmp_path: Path) -> None:
     run, _ = _run(repo, tmp_path, FakeDeveloper(repo, []), FakeReviewer([]), [""])
     assert run._approver("Developer")("run_tests", {}) is True
