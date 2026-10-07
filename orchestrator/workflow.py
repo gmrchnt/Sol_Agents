@@ -8,6 +8,7 @@ from orchestrator.review import BLOCKING_SEVERITIES
 from orchestrator.runlog import RunLog
 from orchestrator.tool_loop import Approve, ToolCall, ToolLoopResult
 from orchestrator.validation import run_validation
+from tools.testing import sandbox_description
 from schemas.decisions import DeveloperResponse, HumanDecision
 from schemas.requirements import Specification
 from schemas.review import Review
@@ -134,8 +135,8 @@ class ProjectRun:
         validation = run_validation(
             self.state.base_commit,
             lambda: self.ui.confirm(
-                "\nRun the project's tests to check the work? "
-                "This executes project code without a sandbox.",
+                f"\nRun the project's tests to check the work? "
+                f"This executes project code {sandbox_description()}.",
                 default=True,
             ),
         )
@@ -415,8 +416,8 @@ class ProjectRun:
     def _approver(self, agent: str) -> Approve:
         def approve(name: str, arguments: dict) -> bool:
             allowed = self.ui.confirm(
-                f"\nThe {agent} wants to run {name}. This executes code on this "
-                f"machine without a sandbox. Allow?",
+                f"\nThe {agent} wants to run {name}. This executes code "
+                f"{sandbox_description()}. Allow?",
                 default=True,
             )
             self.log.event("approval", agent=agent, tool=name, allowed=allowed)

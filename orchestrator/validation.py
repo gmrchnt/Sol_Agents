@@ -5,7 +5,7 @@ from typing import Callable
 from schemas.validation import CheckResult, ValidationReport
 from tools.git import changed_paths
 from tools.project import list_project_files, read_project_file
-from tools.testing import run_tests
+from tools.testing import SandboxUnavailable, run_tests
 
 NOT_CONFIGURED = CheckResult(
     status="not_configured",
@@ -39,8 +39,12 @@ def check_tests(approve: Callable[[], bool]) -> CheckResult:
     if not approve():
         return CheckResult(status="not_run", output="The human declined to run the tests.")
 
-    run = run_tests()
-    command = " ".join(run.command[1:])
+    try:
+        run = run_tests()
+    except SandboxUnavailable as exc:
+        return CheckResult(status="not_run", output=str(exc))
+
+    command = " ".join(run.command)
     if run.no_tests:
         return CheckResult(status="not_configured", command=command, output=run.output)
     return CheckResult(
