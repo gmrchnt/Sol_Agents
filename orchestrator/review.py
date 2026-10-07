@@ -3,6 +3,18 @@ from schemas.review import Review
 
 BLOCKING_SEVERITIES = {"critical", "high"}
 
+# Phrases a finding uses when its own evidence says it isn't a defect.
+NOT_A_DEFECT_PHRASES = (
+    "not a defect",
+    "not a bug",
+    "no defect",
+    "not an issue",
+)
+
+
+def _normalize(text: str) -> str:
+    return " ".join(text.lower().split())
+
 
 class ReviewRejected(ValueError):
     """The model produced a review that failed deterministic validation."""
@@ -36,6 +48,24 @@ def validate_review(
     finding_ids = [finding.id for finding in review.findings]
     if len(finding_ids) != len(set(finding_ids)):
         raise ReviewRejected("Finding IDs must be unique.")
+
+    first_with_claim: dict[str, str] = {}
+    for finding in review.findings:
+        claim = _normalize(finding.claim)
+        if claim in first_with_claim:
+            raise ReviewRejected(
+                f"{finding.id} repeats {first_with_claim[claim]}. Report each issue once."
+            )
+        first_with_claim[claim] = finding.id
+
+    for finding in review.findings:
+        text = _normalize(f"{finding.claim} {finding.evidence}")
+        phrase = next((p for p in NOT_A_DEFECT_PHRASES if p in text), None)
+        if phrase:
+            raise ReviewRejected(
+                f"{finding.id} says {phrase!r} about itself. A finding must be a defect; "
+                f"leave out anything your own evidence shows is acceptable."
+            )
 
     for finding in review.findings:
         if finding.requirement_id is not None and finding.requirement_id not in expected:

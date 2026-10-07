@@ -111,3 +111,27 @@ def test_rejects_pass_when_project_has_no_changes() -> None:
 def test_accepts_uncertain_when_project_has_no_changes() -> None:
     results = [_result("REQ-001", "uncertain"), _result("REQ-002", "uncertain")]
     validate_review(_review("changes_required", results), SPEC, changes_made=False)
+
+
+def test_rejects_finding_repeated_with_new_id() -> None:
+    first = _finding("F-001")
+    repeat = {**_finding("F-002"), "claim": "  C  "}
+    with pytest.raises(ReviewRejected, match="F-002 repeats F-001"):
+        validate_review(_review("changes_required", findings=[first, repeat]), SPEC,
+                        changes_made=True)
+
+
+def test_allows_distinct_findings() -> None:
+    findings = [_finding("F-001"), {**_finding("F-002"), "claim": "different"}]
+    validate_review(_review("changes_required", findings=findings), SPEC, changes_made=True)
+
+
+@pytest.mark.parametrize("evidence", [
+    "This is consistent with the spec and is not a defect per the approved spec.",
+    "Behaves as Python does; Not A Bug.",
+])
+def test_rejects_finding_that_says_it_is_not_a_defect(evidence: str) -> None:
+    finding = {**_finding("F-001"), "evidence": evidence}
+    with pytest.raises(ReviewRejected, match="must be a defect"):
+        validate_review(_review("changes_required", findings=[finding]), SPEC,
+                        changes_made=True)

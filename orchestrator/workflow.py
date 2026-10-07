@@ -109,7 +109,7 @@ class ProjectRun:
                 if self.state.iteration >= self.max_iterations and not self.ui.confirm(
                     f"\nReached the limit of {self.max_iterations} iterations. "
                     f"Run one more iteration?",
-                    default=False,
+                    default=True,
                 ):
                     self._finish("failed", f"iteration limit ({self.max_iterations}) reached")
                     return
@@ -136,7 +136,7 @@ class ProjectRun:
             lambda: self.ui.confirm(
                 "\nRun the project's tests to check the work? "
                 "This executes project code without a sandbox.",
-                default=False,
+                default=True,
             ),
         )
         self.state.validation = validation
@@ -234,11 +234,12 @@ class ProjectRun:
                 self.ui.say(describe_finding(finding))
 
         options = {"a": "accept", "s": "stop"}
-        prompt = "[a]ccept the work  [s]top without accepting: "
+        prompt = "[a]ccept the work  [s]top without accepting  (Enter = accept): "
         if review.findings:
             options["i"] = "iterate"
-            prompt = "[a]ccept the work  [i]terate on the optional findings  [s]top: "
-        return options[self.ui.choose(prompt, options)]
+            prompt = ("[a]ccept the work  [i]terate on the optional findings  [s]top  "
+                      "(Enter = accept): ")
+        return options[self.ui.choose(prompt, options, default="a")]
 
     def _close(self) -> None:
         state = self.state
@@ -257,7 +258,7 @@ class ProjectRun:
 
         if state.status == "complete" and state.checkpoints:
             if self.ui.confirm(f"Merge {state.run_branch} into {state.original_branch} now?",
-                               default=False):
+                               default=True):
                 try:
                     merge_fast_forward(state.run_branch)
                     state.outcome = f"{state.outcome}, merged into {state.original_branch}"
@@ -330,6 +331,10 @@ class ProjectRun:
             "- Only report a finding when you can point to concrete evidence, such "
             "as a line in the diff or a failing test.\n"
             "- Do not report missing evidence as a finding; use uncertain.\n"
+            "- Report only defects. If your evidence shows something behaves "
+            "acceptably, leave it out entirely - it is not a finding.\n"
+            "- Report each issue once.\n"
+            "- Use the security category only for a real security problem.\n"
             "- Use critical or high only for defects that break a requirement or are "
             "a real security or correctness problem."
         )
@@ -412,7 +417,7 @@ class ProjectRun:
             allowed = self.ui.confirm(
                 f"\nThe {agent} wants to run {name}. This executes code on this "
                 f"machine without a sandbox. Allow?",
-                default=False,
+                default=True,
             )
             self.log.event("approval", agent=agent, tool=name, allowed=allowed)
             return allowed

@@ -259,9 +259,18 @@ def test_state_and_events_are_logged(repo: Path, tmp_path: Path) -> None:
     assert "checkpoint" in kinds and "review" in kinds
 
 
-def test_tool_approval_defaults_to_no(repo: Path, tmp_path: Path) -> None:
+def test_enter_approves_a_tool_run(repo: Path, tmp_path: Path) -> None:
     run, _ = _run(repo, tmp_path, FakeDeveloper(repo, []), FakeReviewer([]), [""])
-    assert run._approver("Developer")("run_tests", {}) is False
+    assert run._approver("Developer")("run_tests", {}) is True
+
+
+def test_enter_accepts_at_final_review_and_merges(repo: Path, tmp_path: Path) -> None:
+    original = git.current_branch()
+    run, _ = _run(repo, tmp_path, FakeDeveloper(repo, [{"calculator.py": MULTIPLY}]),
+                  FakeReviewer([_review()]), ["", "", ""])
+    state = run.execute()
+    assert state.status == "complete"
+    assert "def multiply" in _file_on(repo, original)
 
 
 def test_low_findings_do_not_block_completion() -> None:
