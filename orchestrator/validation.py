@@ -5,7 +5,13 @@ from typing import Callable
 from schemas.validation import CheckResult, ValidationReport
 from tools.git import changed_paths
 from tools.project import list_project_files, read_project_file
-from tools.testing import SandboxUnavailable, run_tests
+from tools.dependencies import (
+    REQUIREMENTS_FILE,
+    DependencyError,
+    missing_dependencies,
+    read_requirements,
+)
+from tools.testing import DependenciesNotReady, SandboxUnavailable, run_tests
 
 NOT_CONFIGURED = CheckResult(
     status="not_configured",
@@ -35,13 +41,31 @@ def check_syntax() -> CheckResult:
     )
 
 
+def check_dependencies() -> CheckResult:
+    """Every third-party import must be declared, pinned, in requirements.txt."""
+    command = f"imports in .py files vs {REQUIREMENTS_FILE}"
+    try:
+        requirements = read_requirements()
+    except DependencyError as exc:
+        return CheckResult(status="fail", command=command, output=str(exc))
+
+    problems = missing_dependencies(requirements)
+    if not requirements and not problems:
+        return CheckResult(status="not_configured", output="No third-party packages used.")
+    return CheckResult(
+        status="fail" if problems else "pass",
+        command=command,
+        output="\n".join(problems),
+    )
+
+
 def check_tests(approve: Callable[[], bool]) -> CheckResult:
     if not approve():
         return CheckResult(status="not_run", output="The human declined to run the tests.")
 
     try:
         run = run_tests()
-    except SandboxUnavailable as exc:
+    except (SandboxUnavailable, DependenciesNotReady, DependencyError) as exc:
         return CheckResult(status="not_run", output=str(exc))
 
     command = " ".join(run.command)
@@ -63,6 +87,7 @@ def unexpected_changes(base: str) -> list[str]:
 def run_validation(base: str, approve_tests: Callable[[], bool]) -> ValidationReport:
     return ValidationReport(
         build=check_syntax(),
+        dependencies=check_dependencies(),
         tests=check_tests(approve_tests),
         lint=NOT_CONFIGURED,
         static_analysis=NOT_CONFIGURED,

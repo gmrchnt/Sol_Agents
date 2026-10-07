@@ -16,6 +16,7 @@ from orchestrator.workflow import ProjectRun
 from schemas.requirements import Specification
 from schemas.state import ProjectState
 from tools.git import GitError, current_branch, current_commit, status
+from tools.dependencies import DependencyError
 from tools.testing import SuiteRunError
 from tools.toolsets import DeveloperToolset, ReviewerToolset
 
@@ -87,5 +88,6 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     try:
         main()
-    except (LLMError, GitError, SuiteRunError, ToolLoopLimitError, StructuredOutputError) as exc:
+    except (LLMError, GitError, SuiteRunError, DependencyError, ToolLoopLimitError,
+            StructuredOutputError) as exc:
         raise SystemExit(f"Error: {exc}")

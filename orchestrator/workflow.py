@@ -8,7 +8,14 @@ from orchestrator.review import BLOCKING_SEVERITIES
 from orchestrator.runlog import RunLog
 from orchestrator.tool_loop import Approve, ToolCall, ToolLoopResult
 from orchestrator.validation import run_validation
-from tools.testing import sandbox_description
+from tools.dependencies import DependencyError
+from tools.testing import (
+    SuiteRunError,
+    install_dependencies,
+    install_description,
+    pending_packages,
+    sandbox_description,
+)
 from schemas.decisions import DeveloperResponse, HumanDecision
 from schemas.requirements import Specification
 from schemas.review import Review
@@ -130,7 +137,35 @@ class ProjectRun:
 
     # --- phases -------------------------------------------------------------
 
+    def _sync_dependencies(self) -> None:
+        """Section 9: dependency additions need the human's approval before install."""
+        try:
+            pending = pending_packages()
+        except (SuiteRunError, DependencyError) as exc:
+            self.ui.say(f"\nDependencies: {exc}")
+            return
+        if not pending:
+            return
+
+        self.ui.say(f"\nrequirements.txt asks for packages that are not installed yet:")
+        for package in pending:
+            self.ui.say(f"  + {package}")
+        if not self.ui.confirm(f"Install them {install_description()}?", default=True):
+            self.log.event("dependencies", installed=False, packages=pending)
+            self.ui.say("Not installed. Tests will not run until they are.")
+            return
+
+        try:
+            summary = install_dependencies()
+        except DependencyError as exc:
+            self.log.event("dependencies", installed=False, packages=pending, error=str(exc))
+            self.ui.say(f"Install failed: {exc}")
+            return
+        self.log.event("dependencies", installed=True, packages=pending)
+        self.ui.say(summary)
+
     def _validate(self) -> ValidationReport:
+        self._sync_dependencies()
         self._set("validate")
         validation = run_validation(
             self.state.base_commit,
@@ -336,6 +371,9 @@ class ProjectRun:
             "acceptably, leave it out entirely - it is not a finding.\n"
             "- Report each issue once.\n"
             "- Use the security category only for a real security problem.\n"
+            "- If requirements.txt changed, check every new package is actually "
+            "needed, is a well-known package with the correct name, and is pinned. "
+            "A misspelled or unnecessary package is a security finding.\n"
             "- Use critical or high only for defects that break a requirement or are "
             "a real security or correctness problem."
         )
@@ -408,6 +446,16 @@ class ProjectRun:
             self.ui.say(f"\nNo changes to checkpoint after {label}.")
         self._save()
 
+    @staticmethod
+    def _install_question(agent: str) -> str:
+        try:
+            pending = pending_packages()
+        except (SuiteRunError, DependencyError) as exc:
+            return f"\nThe {agent} wants to install dependencies ({exc}). Allow?"
+        packages = "\n".join(f"  + {p}" for p in pending) or "  (nothing new)"
+        return (f"\nThe {agent} wants to install these packages "
+                f"{install_description()}:\n{packages}\nAllow?")
+
     def _record_developer_summary(self, result: ToolLoopResult) -> None:
         self.state.developer_summary = result.final_text
         self.ui.say(f"\n{result.final_text}")
@@ -415,11 +463,12 @@ class ProjectRun:
 
     def _approver(self, agent: str) -> Approve:
         def approve(name: str, arguments: dict) -> bool:
-            allowed = self.ui.confirm(
-                f"\nThe {agent} wants to run {name}. This executes code "
-                f"{sandbox_description()}. Allow?",
-                default=True,
-            )
+            if name == "install_dependencies":
+                question = self._install_question(agent)
+            else:
+                question = (f"\nThe {agent} wants to run {name}. This executes code "
+                            f"{sandbox_description()}. Allow?")
+            allowed = self.ui.confirm(question, default=True)
             self.log.event("approval", agent=agent, tool=name, allowed=allowed)
             return allowed
         return approve

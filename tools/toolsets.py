@@ -14,7 +14,7 @@ from tools.project import (
     write_project_file,
 )
 from tools.review_tests import write_review_test
-from tools.testing import SuiteRun, run_tests
+from tools.testing import SuiteRun, install_dependencies, run_tests
 
 
 class ReadOnlyToolset:
@@ -71,3 +71,6 @@ class DeveloperToolset(ReadOnlyToolset):
 
     def run_tests(self) -> SuiteRun:
         return run_tests()
+
+    def install_dependencies(self) -> str:
+        return install_dependencies()

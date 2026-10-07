@@ -5,11 +5,14 @@ from typing import Callable
 from llm import LLMClient
 from tools.git import GitError, GitResult
 from tools.project import ProjectAccessError
+from tools.dependencies import DependencyError
 from tools.testing import SuiteRun, SuiteRunError
 
 MAX_TOOL_STEPS = 20
-NEEDS_APPROVAL = {"run_tests", "run_review_tests"}
-RECOVERABLE_ERRORS = (ProjectAccessError, OSError, ValueError, GitError, SuiteRunError)
+NEEDS_APPROVAL = {"run_tests", "run_review_tests", "install_dependencies"}
+RECOVERABLE_ERRORS = (
+    ProjectAccessError, OSError, ValueError, GitError, SuiteRunError, DependencyError,
+)
 
 Approve = Callable[[str, dict], bool]
 
@@ -80,6 +83,12 @@ TOOL_SPECS: dict[str, dict] = {
             "run_tests",
             "Run the project's pytest suite and return its output. "
             "A human must approve each run.",
+        ),
+        _tool(
+            "install_dependencies",
+            "Install the packages listed in the project's requirements.txt where "
+            "tests run. Tests have no network, so this is the only way to get a "
+            "third-party package. A human must approve each install.",
         ),
         _tool(
             "write_review_test",

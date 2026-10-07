@@ -20,6 +20,9 @@ class ValidationReport(BaseModel):
     tests: CheckResult
     lint: CheckResult
     static_analysis: CheckResult
+    dependencies: CheckResult = Field(
+        default_factory=lambda: CheckResult(status="not_configured")
+    )
     unexpected_files: list[str] = Field(default_factory=list)
 
     @property
@@ -35,6 +38,7 @@ class ValidationReport(BaseModel):
     def checks(self) -> dict[str, CheckResult]:
         return {
             "build": self.build,
+            "dependencies": self.dependencies,
             "tests": self.tests,
             "lint": self.lint,
             "static_analysis": self.static_analysis,

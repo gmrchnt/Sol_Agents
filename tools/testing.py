@@ -7,6 +7,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import config
+from tools.dependencies import (
+    REQUIREMENTS_FILE,
+    Requirement,
+    build_docker_image,
+    build_local_env,
+    docker_image_exists,
+    docker_tag,
+    local_python,
+    read_requirements,
+)
 from tools.git import _truncate
 from tools.project import get_project_path
 
@@ -26,6 +36,10 @@ class SuiteRunError(Exception):
 
 class SandboxUnavailable(SuiteRunError):
     """The sandbox is required but cannot be used, so nothing was run."""
+
+
+class DependenciesNotReady(SuiteRunError):
+    """requirements.txt lists packages that have not been installed yet."""
 
 
 @dataclass(frozen=True)
@@ -50,6 +64,59 @@ def sandbox_description() -> str:
     return "directly on this machine WITHOUT a sandbox"
 
 
+def install_description() -> str:
+    if SANDBOX == "docker":
+        return ("into the Docker sandbox image (network on only while installing, "
+                "pre-built packages only)")
+    return ("into a separate environment for this project, not Sol_Agents' own "
+            "(pre-built packages only)")
+
+
+# --- dependencies -------------------------------------------------------------
+
+def pending_packages() -> list[str]:
+    """Packages in requirements.txt not yet installed where tests run."""
+    requirements = read_requirements()
+    if not requirements:
+        return []
+    if SANDBOX == "docker":
+        require_docker()
+        installed = docker_image_exists(docker_tag(requirements, SANDBOX_IMAGE))
+    else:
+        installed = local_python(requirements) is not None
+    return [] if installed else [req.line for req in requirements]
+
+
+def install_dependencies() -> str:
+    requirements = read_requirements()
+    if not requirements:
+        return f"{REQUIREMENTS_FILE} lists no packages; nothing to install."
+
+    packages = ", ".join(req.line for req in requirements)
+    if not pending_packages():
+        return f"Already installed: {packages}"
+
+    if SANDBOX == "docker":
+        build_docker_image(requirements, SANDBOX_IMAGE)
+    else:
+        build_local_env(requirements)
+    return f"Installed: {packages}"
+
+
+def _ready_requirements() -> list[Requirement]:
+    requirements = read_requirements()
+    pending = pending_packages() if requirements else []
+    if pending:
+        raise DependenciesNotReady(
+            f"{REQUIREMENTS_FILE} lists packages that are not installed yet: "
+            f"{', '.join(pending)}. They must be installed (with the human's "
+            f"approval) before tests can run."
+        )
+    return requirements
+
+
+# --- running tests ------------------------------------------------------------
+
 def run_tests(target: Path | None = None) -> SuiteRun:
     """Run pytest against the project; `target` limits it to one folder."""
     if SANDBOX == "docker":
@@ -58,7 +125,10 @@ def run_tests(target: Path | None = None) -> SuiteRun:
 
 
 def _run_locally(target: Path | None) -> SuiteRun:
-    command = [sys.executable, *PYTEST_ARGS]
+    requirements = _ready_requirements()
+    python = local_python(requirements) if requirements else Path(sys.executable)
+
+    command = [str(python), *PYTEST_ARGS]
     if target is not None:
         command.append(str(target))
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
@@ -79,7 +149,8 @@ def _run_locally(target: Path | None) -> SuiteRun:
     return _result(command, done)
 
 
-def docker_command(container: str, target: Path | None = None) -> list[str]:
+def docker_command(container: str, target: Path | None = None,
+                   image: str | None = None) -> list[str]:
     root = get_project_path().resolve()
     command = [
         "docker", "run", "--rm",
@@ -100,7 +171,7 @@ def docker_command(container: str, target: Path | None = None) -> list[str]:
     ]
     if target is not None:
         command += ["--mount", f"type=bind,source={target.resolve()},target=/review,readonly"]
-    command += [SANDBOX_IMAGE, "python", *PYTEST_ARGS]
+    command += [image or SANDBOX_IMAGE, "python", *PYTEST_ARGS]
     if target is not None:
         command.append("/review")
     return command
@@ -135,8 +206,11 @@ def require_docker() -> None:
 
 def _run_in_docker(target: Path | None) -> SuiteRun:
     require_docker()
+    requirements = _ready_requirements()
+    image = docker_tag(requirements, SANDBOX_IMAGE) if requirements else SANDBOX_IMAGE
+
     container = f"sol-tests-{uuid.uuid4().hex[:12]}"
-    command = docker_command(container, target)
+    command = docker_command(container, target, image)
 
     try:
         done = subprocess.run(
