@@ -61,7 +61,8 @@ MAX_TOOL_STEPS = _int_env("SOL_MAX_TOOL_STEPS", 40)
 MAX_REVIEW_STEPS = _int_env("SOL_MAX_REVIEW_STEPS", 25)
 MAX_ITERATIONS = _int_env("SOL_MAX_ITERATIONS", 5)
 MAX_FILE_BYTES = _int_env("SOL_MAX_FILE_BYTES", 2_000_000)
-CONTEXT_CHARS = _int_env("SOL_CONTEXT_CHARS", 150_000)
+# ~4 characters per token: 80,000 fits a 32k-token context with room for the reply.
+CONTEXT_CHARS = _int_env("SOL_CONTEXT_CHARS", 80_000)
 
 # Commands (builds, installs, tests) run in containers with these limits.
 COMMAND_TIMEOUT = _int_env("SOL_COMMAND_TIMEOUT", 900)

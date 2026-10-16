@@ -58,8 +58,17 @@ Rules:
 13. Findings are defects only. Improvements to existing code and
     ideas for new additions go in suggestions instead. Suggestions
     are optional: they never fail a requirement or block completion,
-    and the human decides whether to adopt them.
+    and the human decides whether to adopt them. Number findings
+    F-001, F-002, ... and suggestions S-001, S-002, ...
 """.strip()
+
+
+def number_suggestions(review: Review) -> Review:
+    suggestions = [
+        suggestion.model_copy(update={"id": f"S-{number:03d}"})
+        for number, suggestion in enumerate(review.suggestions, start=1)
+    ]
+    return review.model_copy(update={"suggestions": suggestions})
 
 
 class ReviewerAgent:
@@ -91,7 +100,7 @@ class ReviewerAgent:
         self, message: str, specification: Specification, *, changes_made: bool
     ) -> Review:
         files = "\n".join(self.tools.list_files())
-        return request_structured(
+        review = request_structured(
             self.llm,
             REVIEWER_SYSTEM_PROMPT,
             f"PROJECT FILES:\n{files}\n\n{message}",
@@ -100,6 +109,7 @@ class ReviewerAgent:
             ReviewRejected,
             "review",
         )
+        return number_suggestions(review)
 
     def summarize(self, message: str) -> ProjectSummary:
         """Describe the project as it stands, citing only files that exist."""

@@ -32,7 +32,9 @@ class Suggestion(BaseModel):
     """Optional and never blocking: an improvement to existing code, or a new addition."""
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(pattern=r"^S-\d{3}$")
+    # Only a label: Sol renumbers suggestions S-001, S-002, ... after the review,
+    # so a model that writes "SUG-1" does not cost the run.
+    id: str = ""
     kind: Literal["improvement", "addition"]
     file: str | None = None
     line: int | None = Field(default=None, ge=1)

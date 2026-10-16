@@ -92,7 +92,8 @@ def run_check(component: Component, kind: str) -> CheckRun | None:
             return CheckRun(component.name, "pytest", run_tests(display=component.display))
         network = kind == "test" and component.test_network
         return CheckRun(component.name, command,
-                        run_in_component(component, command, network=network))
+                        run_in_component(component, command, writable=True,
+                                         network=network))
     except SandboxUnavailable:
         raise
     except (DependenciesNotReady, DependencyError, SuiteRunError, OSError,

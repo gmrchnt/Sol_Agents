@@ -55,10 +55,6 @@ def validate_review(
             f"Your findings must be numbered F-001, F-002, ...: {', '.join(not_reviewer)}"
         )
 
-    suggestion_ids = [s.id for s in review.suggestions]
-    if len(suggestion_ids) != len(set(suggestion_ids)):
-        raise ReviewRejected("Suggestion IDs must be unique.")
-
     claims = {_normalize(f.claim): f.id for f in review.findings}
     for suggestion in review.suggestions:
         twin = claims.get(_normalize(suggestion.description))

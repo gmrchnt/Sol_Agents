@@ -117,7 +117,9 @@ def status() -> GitResult:
 
 def diff(
     base: str | None = "HEAD",
+    exclude: tuple[str, ...] = (),
 ) -> GitResult:
+    """`exclude` holds glob patterns of files to leave out, e.g. "**/package-lock.json"."""
     require_git_repository()
 
     args = [
@@ -133,6 +135,9 @@ def diff(
             )
 
         args.append(base)
+
+    if exclude:
+        args += ["--", ".", *(f":(glob,exclude){pattern}" for pattern in exclude)]
 
     return _run_git(*args)
 
@@ -152,6 +157,14 @@ def changed_paths(base: str) -> list[tuple[str, str]]:
         if path:
             changes.append((letter, path))
     return changes
+
+
+def untracked_files() -> set[str]:
+    """New files git would add - ignored ones (node_modules, a .gitignore'd dist/) excluded."""
+    require_git_repository()
+    result = _must(_run_git("ls-files", "-z", "--others", "--exclude-standard"),
+                   "list untracked files")
+    return {path for path in result.stdout.split("\0") if path}
 
 
 def recent_commits(

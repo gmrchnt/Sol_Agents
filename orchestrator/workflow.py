@@ -1,5 +1,6 @@
 import json
 import re
+from fnmatch import fnmatch
 from typing import Callable, Protocol
 
 from llm import LLMError
@@ -64,6 +65,7 @@ from schemas.state import Checkpoint, ProjectState, Status
 from schemas.validation import ValidationReport
 from tools.git import (
     GitError,
+    changed_paths,
     commit_all,
     create_branch,
     current_commit,
@@ -77,6 +79,13 @@ MAX_ITERATIONS = config.MAX_ITERATIONS
 # When an agent's tool budget runs out, the human can grant this many more steps.
 EXTRA_STEPS = config.MAX_TOOL_STEPS
 TRANSCRIPT_RESULT_CHARS = 1_500
+# The diff pasted into a prompt; the agents can call git_diff for the rest.
+MAX_PROMPT_DIFF_CHARS = 30_000
+# Machine-written, often thousands of lines, and nothing a model needs to read.
+LOCKFILES = ("**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml", "**/bun.lockb",
+             "**/Cargo.lock", "**/poetry.lock", "**/Pipfile.lock", "**/uv.lock",
+             "**/composer.lock", "**/Gemfile.lock", "**/go.sum", "**/mix.lock",
+             "**/pubspec.lock", "**/packages.lock.json", "**/deno.lock")
 # Tools that run commands; the human can allow them for the rest of the run.
 COMMAND_TOOLS = {"run_command", "run_review_command"}
 FEEDBACK_KINDS = {"b": "bug", "c": "change", "n": "feature"}
@@ -314,7 +323,7 @@ class ProjectRun:
     def _review(self, validation: ValidationReport) -> Review:
         self._set("review")
         self.ui.heading("REVIEWER")
-        patch = diff(self.state.base_commit).stdout.strip()
+        patch = self._patch()
 
         notes = self.reviewer.investigate(
             self._investigation_message(patch, validation),
@@ -567,7 +576,7 @@ class ProjectRun:
         state = self.state
         previous = load_document()
         before = previous.summary if previous else state.project_summary
-        patch = diff(state.base_commit).stdout.strip()
+        patch = self._patch()
         self.ui.heading("UPDATING THE PROJECT DOCUMENT")
         try:
             summary = self.reviewer.summarize(
@@ -643,6 +652,22 @@ class ProjectRun:
         return text + (
             f"APPROVED SPECIFICATION:\n{self.state.specification.model_dump_json(indent=2)}"
         )
+
+    def _patch(self) -> str:
+        """The run's diff as the models see it: lockfiles named but not shown, and
+        cut to fit the context window."""
+        base = self.state.base_commit
+        patch = diff(base, exclude=LOCKFILES).stdout.strip()
+        if len(patch) > MAX_PROMPT_DIFF_CHARS:
+            omitted = len(patch) - MAX_PROMPT_DIFF_CHARS
+            patch = (f"{patch[:MAX_PROMPT_DIFF_CHARS]}\n... [{omitted} more characters of "
+                     f"diff omitted - read the files or call git_diff for the rest]")
+        locks = sorted({path for _, path in changed_paths(base)
+                        if any(fnmatch(path, pattern) or fnmatch(path, pattern[3:])
+                               for pattern in LOCKFILES)})
+        if locks:
+            patch += f"\n(lockfiles changed, not shown: {', '.join(locks)})"
+        return patch.strip()
 
     def _toolchain_text(self) -> str:
         try:
@@ -726,7 +751,7 @@ class ProjectRun:
             for f in to_judge
         )
         findings = json.dumps([f.model_dump(exclude_none=True) for f in to_judge], indent=2)
-        patch = diff(self.state.base_commit).stdout.strip()
+        patch = self._patch()
         return (
             f"{self._request_and_spec()}\n\n"
             f"GIT DIFF since the run started:\n{patch or '(empty)'}\n\n"

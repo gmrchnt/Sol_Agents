@@ -6,12 +6,13 @@ from schemas.toolchain import Component, Toolchain
 from schemas.validation import CheckResult, ValidationReport
 from tools.checks import command_for, is_default_pytest, run_in_component
 from tools.toolchain import load_toolchain
-from tools.git import changed_paths
+from tools.git import changed_paths, untracked_files
 from tools.project import (
     ProjectAccessError,
     get_project_path,
     list_project_files,
     read_project_file,
+    resolve_project_path,
 )
 from tools.dependencies import (
     REQUIREMENTS_FILE,
@@ -191,7 +192,9 @@ def check_command(component: Component, kind: str, approve: Callable[[], bool]) 
                            output="The human declined to run project code.")
     network = kind == "test" and component.test_network
     try:
-        run = run_in_component(component, command, network=network)
+        # Builds write into the project (dist/, target/, a bundler's temp files);
+        # .git and .sol stay read-only either way.
+        run = run_in_component(component, command, writable=True, network=network)
     except (SandboxUnavailable, DependenciesNotReady, DependencyError) as exc:
         return CheckResult(status="not_run", command=command, output=str(exc))
     except (SuiteRunError, OSError, ProjectAccessError) as exc:
@@ -268,14 +271,34 @@ def run_validation(base: str, approve_tests: Callable[[], bool],
                 results.append((component.name, check_command(component, kind, approve_once)))
         return results
 
+    before = untracked_files()
+    try:
+        checks = dict(
+            build=combine([("python syntax", check_syntax())] + per_component("build")),
+            dependencies=check_dependencies(elsewhere),
+            imports=check_imports(approve_once, elsewhere) if root_python else CheckResult(
+                status="not_configured", output="No root Python component."),
+            tests=combine(per_component("test")),
+            lint=combine(per_component("lint")),
+            static_analysis=combine(per_component("static_analysis")),
+        )
+    finally:
+        remove_check_output(before)
     return ValidationReport(
-        build=combine([("python syntax", check_syntax())] + per_component("build")),
-        dependencies=check_dependencies(elsewhere),
-        imports=check_imports(approve_once, elsewhere) if root_python else CheckResult(
-            status="not_configured", output="No root Python component."),
-        tests=combine(per_component("test")),
-        lint=combine(per_component("lint")),
-        static_analysis=combine(per_component("static_analysis")),
+        **checks,
         unexpected_files=unexpected_changes(base),
         deleted_files=deleted_files(base),
     )
+
+
+def remove_check_output(before: set[str]) -> None:
+    """Delete files the checks created (a build's dist/, coverage reports) unless git
+    ignores them, so they never end up in a checkpoint or block the next run."""
+    root = get_project_path().resolve()
+    for path in sorted(untracked_files() - before):
+        target = resolve_project_path(Path(path))
+        target.unlink(missing_ok=True)
+        folder = target.parent
+        while folder != root and folder.is_dir() and not any(folder.iterdir()):
+            folder.rmdir()
+            folder = folder.parent

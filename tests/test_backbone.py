@@ -393,3 +393,13 @@ def test_spec_builder_gets_context_but_cites_only_the_request() -> None:
     with pytest.raises(Exception, match="does not appear"):
         builder.build("add a power function", context="EXISTING PROJECT:\nPurpose: a calculator")
     assert "BACKGROUND" in builder.llm.messages[0][1]["content"]
+
+
+def test_suggestions_are_numbered_by_sol() -> None:
+    from agents.reviewer import number_suggestions
+    review = Review.model_validate({**_review().model_dump(), "suggestions": [
+        {"id": "SUG-001", "kind": "improvement", "description": "a", "rationale": "r"},
+        {"id": "SUG-001", "kind": "addition", "description": "b", "rationale": "r"},
+    ]})
+    validate_review(review, SPEC, changes_made=True)
+    assert [s.id for s in number_suggestions(review).suggestions] == ["S-001", "S-002"]

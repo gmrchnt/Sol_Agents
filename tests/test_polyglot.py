@@ -667,3 +667,53 @@ def test_api_key_is_sent_when_set() -> None:
               transport=httpx.MockTransport(reply)).chat([{"role": "user", "content": "hi"}])
     assert seen[0].headers["Authorization"] == "Bearer sk-test"
     assert "Authorization" not in seen[1].headers
+
+
+def test_models_see_lockfiles_named_not_shown(repo: Path, tmp_path: Path) -> None:
+    base = git.current_commit()
+    _write(repo, "web/package-lock.json", '{"lockfileVersion": 3}\n' * 500)
+    _write(repo, "web/app.js", "console.log('hi')\n")
+    _git(repo, "add", "-A")
+    patch = _patch_run(base, tmp_path)._patch()
+    assert "console.log('hi')" in patch
+    assert "lockfileVersion" not in patch
+    assert patch.endswith("(lockfiles changed, not shown: web/package-lock.json)")
+
+
+def test_huge_diffs_are_cut_for_the_prompt(repo: Path, tmp_path: Path) -> None:
+    base = git.current_commit()
+    _write(repo, "big.txt", "line\n" * 20_000)
+    _git(repo, "add", "-A")
+    patch = _patch_run(base, tmp_path)._patch()
+    assert len(patch) < 31_000
+    assert "call git_diff for the rest" in patch
+
+
+def test_build_checks_may_write_into_the_project(repo: Path,
+                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    import orchestrator.validation as validation
+    seen: dict = {}
+
+    def fake(component, command, **kwargs):
+        seen.update(kwargs)
+        return sandbox.CommandRun(command, 0, "")
+
+    monkeypatch.setattr(validation, "run_in_component", fake)
+    validation.check_command(Component(name="web", build="vite build"), "build", lambda: True)
+    assert seen["writable"] is True
+
+
+def _patch_run(base: str, tmp_path: Path) -> ProjectRun:
+    run = _project_run(tmp_path, [])
+    run.state.base_commit = base
+    return run
+
+
+def test_files_made_by_checks_are_cleaned_up(repo: Path) -> None:
+    _write(repo, "notes.txt", "mine")  # untracked before the checks: left alone
+    build = f'{PY} -c "import os; os.makedirs(\'dist/assets\'); open(\'dist/assets/a.js\', \'w\')"'
+    _explicit(build=build)
+    report = run_validation(git.current_commit(), lambda: True)
+    assert report.build.status == "pass"
+    assert not (repo / "dist").exists()
+    assert (repo / "notes.txt").exists()
