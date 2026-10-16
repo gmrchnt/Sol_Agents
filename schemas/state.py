@@ -2,7 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from schemas.decisions import DeveloperResponse, HumanDecision
+from schemas.decisions import DeveloperResponse, HumanDecision, HumanFeedback
+from schemas.project import ProjectSummary
 from schemas.requirements import Specification
 from schemas.review import Finding, Review
 from schemas.validation import ValidationReport
@@ -52,3 +53,9 @@ class ProjectState(BaseModel):
     dismissed_findings: list[Finding] = Field(default_factory=list)
     checkpoints: list[Checkpoint] = Field(default_factory=list)
     outcome: str | None = None
+
+    # What the project already was when the run started (survey or .sol document).
+    project_summary: ProjectSummary | None = None
+    # Feedback the human gave at final review, and requests that amended the spec.
+    feedback: list[HumanFeedback] = Field(default_factory=list)
+    amendments: list[str] = Field(default_factory=list)

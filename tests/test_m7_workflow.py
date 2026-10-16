@@ -5,12 +5,14 @@ from pathlib import Path
 import pytest
 
 import tools.project
+import tools.testing
 from llm import LLMError
 from orchestrator.console import ConsoleUI
 from orchestrator.runlog import RunLog
 from orchestrator.tool_loop import ToolLoopResult
 from orchestrator.workflow import ProjectRun, blocking_problems
 from schemas.decisions import DeveloperResponse, FindingDecision
+from schemas.project import ProjectSummary
 from schemas.requirements import Specification
 from schemas.review import Review
 from schemas.state import ProjectState
@@ -50,7 +52,7 @@ class FakeDeveloper:
         self.fail_on_call = fail_on_call
         self.messages: list[str] = []
 
-    def implement(self, message, approve, on_call=None) -> ToolLoopResult:
+    def implement(self, message, approve, on_call=None, on_limit=None) -> ToolLoopResult:
         self.messages.append(message)
         for path, content in (self.edits.pop(0) if self.edits else {}).items():
             (self.project / path).write_text(content, encoding="utf-8")
@@ -69,13 +71,18 @@ class FakeReviewer:
         self.messages: list[str] = []
         self.changes_made: list[bool] = []
 
-    def investigate(self, message, approve, on_call=None) -> ToolLoopResult:
+    def investigate(self, message, approve, on_call=None, on_limit=None) -> ToolLoopResult:
         self.messages.append(message)
         return ToolLoopResult("looked at calculator.py")
 
     def review(self, message, specification, *, changes_made) -> Review:
         self.changes_made.append(changes_made)
         return self.reviews.pop(0)
+
+    def summarize(self, message) -> ProjectSummary:
+        self.messages.append(message)
+        return ProjectSummary(purpose="a calculator",
+                              modules=[{"path": "calculator.py", "responsibility": "math"}])
 
 
 def _review(status: str = "pass", findings: list[dict] | None = None) -> Review:
@@ -144,7 +151,7 @@ def test_accepted_run_keeps_work_on_its_own_branch(repo: Path, tmp_path: Path) -
     assert git.current_branch() == original
     assert git.current_commit() == start
     assert "def multiply" in _file_on(repo, "sol/run-r1")
-    assert [c.label for c in state.checkpoints] == ["implementation"]
+    assert [c.label for c in state.checkpoints] == ["implementation", "project document"]
     assert ui.answers == []
 
 
@@ -176,7 +183,8 @@ def test_failed_requirement_triggers_a_fix_iteration(repo: Path, tmp_path: Path)
     assert state.status == "complete"
     assert state.iteration == 2
     assert "Requirement REQ-001 is fail" in developer.messages[1]
-    assert [c.label for c in state.checkpoints] == ["implementation", "fix 1"]
+    assert [c.label for c in state.checkpoints] == ["implementation", "fix 1",
+                                                    "project document"]
 
 
 def test_iteration_limit_stops_the_run(repo: Path, tmp_path: Path) -> None:
@@ -267,9 +275,16 @@ def test_trying_it_returns_to_the_final_choice(repo: Path, tmp_path: Path) -> No
     assert ui.answers == []
 
 
-def test_enter_approves_a_tool_run(repo: Path, tmp_path: Path) -> None:
+def test_enter_approves_a_sandboxed_tool_run(repo: Path, tmp_path: Path,
+                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tools.testing, "SANDBOX", "docker")
     run, _ = _run(repo, tmp_path, FakeDeveloper(repo, []), FakeReviewer([]), [""])
     assert run._approver("Developer")("run_tests", {}) is True
+
+
+def test_enter_declines_an_unsandboxed_tool_run(repo: Path, tmp_path: Path) -> None:
+    run, _ = _run(repo, tmp_path, FakeDeveloper(repo, []), FakeReviewer([]), [""])
+    assert run._approver("Developer")("run_tests", {}) is False
 
 
 def test_enter_accepts_at_final_review_and_merges(repo: Path, tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 from orchestrator.console import ConsoleUI
 from schemas.decisions import DeveloperResponse, HumanDecision
-from schemas.review import Finding, Review
+from schemas.review import Finding, Review, Suggestion
 
 REVIEW_CHOICES = {"a": "approve", "r": "reject", "i": "investigate", "c": "instruct"}
 
@@ -20,6 +20,17 @@ def describe_finding(finding: Finding) -> str:
     if finding.suggested_fix:
         lines.append(f"  Suggested fix: {finding.suggested_fix}")
     return "\n".join(lines)
+
+
+def describe_suggestion(suggestion: Suggestion) -> str:
+    location = suggestion.file or ""
+    if suggestion.file and suggestion.line:
+        location += f":{suggestion.line}"
+    return "\n".join([
+        f"{suggestion.id}  [{suggestion.kind}]  {location}".rstrip(),
+        f"  Suggestion:    {suggestion.description}",
+        f"  Why:           {suggestion.rationale}",
+    ])
 
 
 def human_review(ui: ConsoleUI, review: Review) -> list[HumanDecision]:

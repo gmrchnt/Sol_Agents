@@ -1,15 +1,15 @@
 from typing import Callable
 
-from config import REVIEWER_MODEL
+from config import MAX_REVIEW_STEPS, REVIEWER_API_KEY, REVIEWER_BASE_URL, REVIEWER_MODEL
 from llm import LLMClient
+from orchestrator.project_doc import SummaryRejected, validate_summary
 from orchestrator.review import ReviewRejected, validate_review
 from orchestrator.structured import request_structured
-from orchestrator.tool_loop import Approve, ToolCall, ToolLoopResult, run_tool_loop
+from orchestrator.tool_loop import Approve, MoreSteps, ToolCall, ToolLoopResult, run_tool_loop
+from schemas.project import ProjectSummary
 from schemas.requirements import Specification
 from schemas.review import Review
 from tools.toolsets import ReviewerToolset
-
-MAX_REVIEW_STEPS = 15
 
 REVIEWER_SYSTEM_PROMPT = """
 You are the independent Reviewer Agent in a software
@@ -24,10 +24,13 @@ demonstrable defects.
 You investigate through tools:
 - list_files, read_file, search_files: read the project
 - git_status, git_diff, git_recent_commits: see what changed in this run
-- write_review_test: write your own adversarial test in a private area
-  outside the project
-- run_review_tests: run those tests against the project (a human must
-  approve each run)
+- show_toolchain: how the project is built and tested, per component
+- write_review_test, run_review_tests: write adversarial pytest files in
+  a private area outside the project and run them against it
+- write_review_file, run_review_command: for any other language, write
+  a test or script in that private area and run it with the project's
+  own tools in its sandbox; the project is read-only there and your
+  files are at $REVIEW_DIR (a human must approve each run)
 
 You can never modify the project's source.
 
@@ -52,13 +55,18 @@ Rules:
 11. Prefer precise, falsifiable findings over broad criticism.
 12. The Developer is allowed to reject your findings later if
     they are unsupported or incorrect.
+13. Findings are defects only. Improvements to existing code and
+    ideas for new additions go in suggestions instead. Suggestions
+    are optional: they never fail a requirement or block completion,
+    and the human decides whether to adopt them.
 """.strip()
 
 
 class ReviewerAgent:
 
     def __init__(self, toolset: ReviewerToolset) -> None:
-        self.llm = LLMClient(REVIEWER_MODEL)
+        self.llm = LLMClient(REVIEWER_MODEL, base_url=REVIEWER_BASE_URL,
+                             api_key=REVIEWER_API_KEY)
         self.tools = toolset
 
     def investigate(
@@ -66,6 +74,7 @@ class ReviewerAgent:
         message: str,
         approve: Approve,
         on_call: Callable[[ToolCall], None] | None = None,
+        on_limit: MoreSteps | None = None,
     ) -> ToolLoopResult:
         return run_tool_loop(
             self.llm,
@@ -75,6 +84,7 @@ class ReviewerAgent:
             approve,
             on_call=on_call,
             max_steps=MAX_REVIEW_STEPS,
+            on_limit=on_limit,
         )
 
     def review(
@@ -89,4 +99,18 @@ class ReviewerAgent:
             lambda review: validate_review(review, specification, changes_made=changes_made),
             ReviewRejected,
             "review",
+        )
+
+    def summarize(self, message: str) -> ProjectSummary:
+        """Describe the project as it stands, citing only files that exist."""
+        files = self.tools.list_files()
+        listing = "\n".join(files)
+        return request_structured(
+            self.llm,
+            REVIEWER_SYSTEM_PROMPT,
+            f"PROJECT FILES:\n{listing}\n\n{message}",
+            ProjectSummary,
+            lambda summary: validate_summary(summary, set(files)),
+            SummaryRejected,
+            "project summary",
         )

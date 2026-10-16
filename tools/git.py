@@ -255,3 +255,29 @@ def restore_paths(paths: list[str]) -> None:
         _run_git("restore", "--source=HEAD", "--staged", "--worktree", "--", *paths),
         "restore files",
     )
+
+
+# Written to .git/info/exclude (this clone only, never committed) at the start of a
+# run, so `git add -A` at a checkpoint can never sweep up installed packages.
+EXCLUDE_MARKER = "# Sol_Agents: generated folders that never belong in a commit"
+DEFAULT_EXCLUDES = [
+    "node_modules/", "__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/",
+    ".ruff_cache/", ".gradle/", ".next/", ".nuxt/", ".parcel-cache/", ".turbo/",
+    ".build/", ".tox/", ".DS_Store",
+]
+
+
+def ensure_default_excludes() -> None:
+    require_git_repository()
+    where = _must(_run_git("rev-parse", "--git-path", "info/exclude"),
+                  "find .git/info/exclude").stdout.strip()
+    path = Path(where)
+    if not path.is_absolute():
+        path = get_project_path() / path
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    if EXCLUDE_MARKER in text:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    block = "\n".join([EXCLUDE_MARKER, *DEFAULT_EXCLUDES]) + "\n"
+    path.write_text((text.rstrip("\n") + "\n\n" if text.strip() else "") + block,
+                    encoding="utf-8")

@@ -185,10 +185,20 @@ def test_changed_paths_lists_status_letters(repo: Path) -> None:
     assert sorted(changed_paths(start)) == [("A", "new.py"), ("D", "calculator.py")]
 
 
-def test_deleted_files_are_unexpected(repo: Path) -> None:
+def test_deleted_files_are_reported_not_unexpected(repo: Path) -> None:
     start = _git(repo, "rev-parse", "HEAD")
     (repo / "calculator.py").unlink()
-    assert unexpected_changes(start) == ["calculator.py"]
+    assert unexpected_changes(start) == []
+    assert run_validation(start, _decline).deleted_files == ["calculator.py"]
+
+
+def test_committed_dependency_folders_are_unexpected(repo: Path) -> None:
+    start = _git(repo, "rev-parse", "HEAD")
+    (repo / "node_modules" / "left-pad").mkdir(parents=True)
+    (repo / "node_modules" / "left-pad" / "index.js").write_text("x", encoding="utf-8")
+    _git(repo, "add", "-A", "-f")
+    [problem] = unexpected_changes(start)
+    assert problem.startswith("node_modules/left-pad/index.js")
 
 
 def test_run_validation_combines_checks(repo: Path) -> None:

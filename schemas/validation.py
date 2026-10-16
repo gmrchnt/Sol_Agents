@@ -23,7 +23,12 @@ class ValidationReport(BaseModel):
     dependencies: CheckResult = Field(
         default_factory=lambda: CheckResult(status="not_configured")
     )
+    imports: CheckResult = Field(
+        default_factory=lambda: CheckResult(status="not_configured")
+    )
     unexpected_files: list[str] = Field(default_factory=list)
+    # Deleting is allowed; the Reviewer and the human still get to see it.
+    deleted_files: list[str] = Field(default_factory=list)
 
     @property
     def failures(self) -> list[str]:
@@ -39,6 +44,7 @@ class ValidationReport(BaseModel):
         return {
             "build": self.build,
             "dependencies": self.dependencies,
+            "imports": self.imports,
             "tests": self.tests,
             "lint": self.lint,
             "static_analysis": self.static_analysis,
@@ -48,6 +54,8 @@ class ValidationReport(BaseModel):
         lines = [f"{name}: {check.status}" for name, check in self.checks().items()]
         if self.unexpected_files:
             lines.append(f"unexpected files: {', '.join(self.unexpected_files)}")
+        if self.deleted_files:
+            lines.append(f"deleted files: {', '.join(self.deleted_files)}")
         for name, check in self.checks().items():
             if check.output and check.status in {"fail", "pass"}:
                 lines.append(f"\n{name.upper()} OUTPUT ({check.command}):\n{check.output}")

@@ -169,7 +169,7 @@ def test_install_builds_a_separate_environment(
 ) -> None:
     built: list[list[str]] = []
     monkeypatch.setattr(tools.testing, "build_local_env",
-                        lambda reqs: built.append([r.line for r in reqs]))
+                        lambda reqs, allow_source=False: built.append([r.line for r in reqs]))
     _write(project, "requirements.txt", "numpy==2.1.3\n")
     assert install_dependencies() == "Installed: numpy==2.1.3"
     assert built == [["numpy==2.1.3"]]

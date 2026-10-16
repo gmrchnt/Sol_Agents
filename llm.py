@@ -16,6 +16,7 @@ class LLMClient:
         base_url: str = LLM_BASE_URL,
         timeout: httpx.Timeout = LLM_TIMEOUT,
         transport: httpx.BaseTransport | None = None,
+        api_key: str = "",
     ) -> None:
         self.model = model
         self.base_url = base_url
@@ -23,6 +24,7 @@ class LLMClient:
             base_url=base_url,
             timeout=timeout,
             transport=transport,
+            headers={"Authorization": f"Bearer {api_key}"} if api_key else None,
         )
 
     def chat(

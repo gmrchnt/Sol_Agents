@@ -168,6 +168,27 @@ def test_search_skips_undecodable_files(project: Path) -> None:
     assert all(r["file"] != "blob.bin" for r in search_project_files("binary"))
 
 
+def test_search_shortens_very_long_lines(project: Path) -> None:
+    (project / "bundle.min.js").write_text("var a=1;" * 5_000 + "needle", encoding="utf-8")
+    [hit] = search_project_files("needle")
+    assert len(hit["content"]) < 400
+    assert hit["content"].endswith("chars]")
+
+
+def test_missing_project_folder_is_an_error(tmp_path: Path,
+                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tools.project, "PROJECT_PATH", tmp_path / "missing")
+    with pytest.raises(ProjectAccessError):
+        list_project_files()
+
+
+def test_sol_folder_is_not_writable(project: Path) -> None:
+    with pytest.raises(ProjectAccessError):
+        write_project_file(Path(".sol/project.json"), "{}")
+    with pytest.raises(ProjectAccessError):
+        write_project_file(Path(".SOL/PROJECT.md"), "x")
+
+
 def test_write_creates_new_file(project: Path) -> None:
     message = write_project_file(Path("new.py"), "x = 1\n")
     assert (project / "new.py").read_bytes() == b"x = 1\n"

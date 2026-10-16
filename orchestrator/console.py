@@ -1,3 +1,6 @@
+from pathlib import Path
+
+
 class ConsoleUI:
     """Terminal input/output. Tests swap in a scripted subclass."""
 
@@ -41,3 +44,25 @@ class ConsoleUI:
             if answer:
                 return answer
             self.say("This can't be empty.")
+
+    def ask_text(self, prompt: str) -> str:
+        """Several lines, ended by an empty line; "@path" reads them from a file."""
+        self.say(prompt)
+        while True:
+            first = self.ask_required("> ")
+            if not first.startswith("@"):
+                break
+            path = Path(first[1:].strip()).expanduser()
+            try:
+                text = path.read_text(encoding="utf-8").strip()
+            except (OSError, UnicodeDecodeError) as exc:
+                self.say(f"Cannot read {path}: {exc}")
+                continue
+            if text:
+                return text
+            self.say(f"{path} is empty.")
+
+        lines = [first]
+        while line := self.ask("> ").rstrip():
+            lines.append(line)
+        return "\n".join(lines)

@@ -49,6 +49,25 @@ def validate_review(
     if len(finding_ids) != len(set(finding_ids)):
         raise ReviewRejected("Finding IDs must be unique.")
 
+    not_reviewer = [fid for fid in finding_ids if not fid.startswith("F-")]
+    if not_reviewer:
+        raise ReviewRejected(
+            f"Your findings must be numbered F-001, F-002, ...: {', '.join(not_reviewer)}"
+        )
+
+    suggestion_ids = [s.id for s in review.suggestions]
+    if len(suggestion_ids) != len(set(suggestion_ids)):
+        raise ReviewRejected("Suggestion IDs must be unique.")
+
+    claims = {_normalize(f.claim): f.id for f in review.findings}
+    for suggestion in review.suggestions:
+        twin = claims.get(_normalize(suggestion.description))
+        if twin:
+            raise ReviewRejected(
+                f"{suggestion.id} repeats {twin}. A defect is a finding; a suggestion is "
+                f"only an optional improvement or addition. Report it once."
+            )
+
     first_with_claim: dict[str, str] = {}
     for finding in review.findings:
         claim = _normalize(finding.claim)

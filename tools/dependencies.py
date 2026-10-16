@@ -92,11 +92,17 @@ def read_requirements() -> list[Requirement]:
     return parse_requirements(read_project_file(Path(REQUIREMENTS_FILE)))
 
 
-def imported_modules() -> dict[str, list[str]]:
-    """Top-level module -> project files importing it. Parses code without running it."""
+def _outside(path: str, skip: tuple[str, ...]) -> bool:
+    return not any(path.startswith(folder.rstrip("/") + "/") for folder in skip)
+
+
+def imported_modules(skip: tuple[str, ...] = ()) -> dict[str, list[str]]:
+    """Top-level module -> project files importing it. Parses code without running it.
+
+    `skip` names folders that are separate components with their own dependencies."""
     found: dict[str, list[str]] = {}
     for path in list_project_files():
-        if not path.endswith(".py"):
+        if not path.endswith(".py") or not _outside(path, skip):
             continue
         try:
             tree = ast.parse(read_project_file(Path(path)), filename=path)
@@ -125,21 +131,22 @@ def project_modules() -> set[str]:
     return names
 
 
-def third_party_imports() -> dict[str, list[str]]:
+def third_party_imports(skip: tuple[str, ...] = ()) -> dict[str, list[str]]:
     local = project_modules()
     return {
         module: files
-        for module, files in imported_modules().items()
+        for module, files in imported_modules(skip).items()
         if module not in sys.stdlib_module_names
         and module not in local
         and module not in PROVIDED
     }
 
 
-def missing_dependencies(requirements: list[Requirement]) -> list[str]:
+def missing_dependencies(requirements: list[Requirement],
+                         skip: tuple[str, ...] = ()) -> list[str]:
     declared = {req.name for req in requirements}
     problems = []
-    for module, files in sorted(third_party_imports().items()):
+    for module, files in sorted(third_party_imports(skip).items()):
         package = IMPORT_TO_PACKAGE.get(module, module)
         if normalize(package) in declared or normalize(module) in declared:
             continue
@@ -173,24 +180,32 @@ def docker_image_exists(tag: str) -> bool:
     return done.returncode == 0
 
 
-def dockerfile(base_image: str) -> str:
+def _binary_only(allow_source: bool) -> list[str]:
+    # Pre-built wheels only, unless the human allowed it: building from source
+    # runs each package's own setup code.
+    return [] if allow_source else ["--only-binary=:all:"]
+
+
+def dockerfile(base_image: str, allow_source: bool = False) -> str:
     # Network is available only while this image builds; tests run with none.
-    # --only-binary means no package's own setup code runs during install.
+    flags = " ".join(["--no-cache-dir", *_binary_only(allow_source)])
     return (
         f"FROM {base_image}\n"
         "COPY requirements.txt /tmp/requirements.txt\n"
-        "RUN pip install --no-cache-dir --only-binary=:all: -r /tmp/requirements.txt\n"
+        f"RUN pip install {flags} -r /tmp/requirements.txt\n"
     )
 
 
-def build_docker_image(requirements: list[Requirement], base_image: str) -> str:
+def build_docker_image(requirements: list[Requirement], base_image: str,
+                       allow_source: bool = False) -> str:
     tag = docker_tag(requirements, base_image)
     with tempfile.TemporaryDirectory(prefix="sol-deps-") as context:
         root = Path(context)
         (root / "requirements.txt").write_text(
             "\n".join(req.line for req in requirements) + "\n", encoding="utf-8"
         )
-        (root / "Dockerfile").write_text(dockerfile(base_image), encoding="utf-8")
+        (root / "Dockerfile").write_text(dockerfile(base_image, allow_source),
+                                         encoding="utf-8")
         try:
             done = subprocess.run(
                 ["docker", "build", "-t", tag, str(root)],
@@ -224,7 +239,7 @@ def local_python(requirements: list[Requirement]) -> Path | None:
     return None
 
 
-def build_local_env(requirements: list[Requirement]) -> Path:
+def build_local_env(requirements: list[Requirement], allow_source: bool = False) -> Path:
     env_dir = local_env_dir(requirements)
     shutil.rmtree(env_dir, ignore_errors=True)
     env_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -242,7 +257,7 @@ def build_local_env(requirements: list[Requirement]) -> Path:
                                encoding="utf-8")
             done = subprocess.run(
                 [str(_env_python(env_dir)), "-m", "pip", "install", "--disable-pip-version-check",
-                 "--only-binary=:all:", PYTEST_PIN, "-r", str(listing)],
+                 *_binary_only(allow_source), PYTEST_PIN, "-r", str(listing)],
                 capture_output=True, timeout=INSTALL_TIMEOUT,
                 encoding="utf-8", errors="replace",
             )

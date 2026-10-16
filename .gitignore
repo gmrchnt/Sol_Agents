@@ -10,9 +10,10 @@ workspace/*
 !workspace/.gitkeep
 
 smoke_test.py
-specific_test.py
+specification_test.py
 
 progress/*
 *.pdf
 *.docx
 .sandbox_envs/
+.sandbox_cache/

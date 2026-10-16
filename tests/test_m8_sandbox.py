@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import tools.project
+import tools.sandbox
 import tools.testing
 from orchestrator.tool_loop import dispatch
 from orchestrator.validation import check_tests
@@ -34,7 +35,7 @@ def docker_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def no_docker(monkeypatch: pytest.MonkeyPatch, docker_mode: None) -> None:
-    monkeypatch.setattr(tools.testing.shutil, "which", lambda name: None)
+    monkeypatch.setattr(tools.sandbox.shutil, "which", lambda name: None)
 
 
 def _flag(command: list[str], name: str) -> str:
@@ -112,7 +113,7 @@ def test_agent_is_told_why_tests_did_not_run(project: Path, no_docker: None) -> 
 def test_docker_not_running_is_reported(
     project: Path, docker_mode: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(tools.testing.shutil, "which", lambda name: "docker")
+    monkeypatch.setattr(tools.sandbox.shutil, "which", lambda name: "docker")
     monkeypatch.setattr(tools.testing.subprocess, "run",
                         lambda *a, **k: subprocess.CompletedProcess(a, 1, b"", b""))
     with pytest.raises(SandboxUnavailable, match="not running"):
@@ -122,8 +123,8 @@ def test_docker_not_running_is_reported(
 def test_missing_image_says_how_to_build_it(
     project: Path, docker_mode: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(tools.testing.shutil, "which", lambda name: "docker")
-    results = iter([0, 1])  # docker info succeeds, image inspect fails
+    monkeypatch.setattr(tools.sandbox.shutil, "which", lambda name: "docker")
+    results = iter([0, 1, 1, 1])  # docker info succeeds; the image is missing and won't build
     monkeypatch.setattr(tools.testing.subprocess, "run",
                         lambda *a, **k: subprocess.CompletedProcess(a, next(results), b"", b""))
     with pytest.raises(SandboxUnavailable, match="docker build -t"):

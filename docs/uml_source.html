@@ -1,0 +1,846 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sol_Agents UML Diagrams</title>
+<style>
+  @page { size: A4 landscape; margin: 10mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1d2733; margin: 0; background: #fff; }
+  section { page-break-after: always; break-after: page; height: 188mm; display: flex; flex-direction: column; }
+  section:last-child { page-break-after: auto; break-after: auto; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 17px; margin: 0 0 2px; color: #0b3d63; }
+  p.note { font-size: 11px; margin: 0 0 6px; color: #4a5866; }
+  .diagram { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .diagram pre.mermaid { margin: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+  .diagram svg { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; }
+  .cover { justify-content: center; }
+  @page tall { size: A4 portrait; margin: 10mm; }
+  section.tall { page: tall; height: 275mm; }
+  .cover ol { font-size: 14px; line-height: 1.7; }
+  .cover .meta { font-size: 12px; color: #4a5866; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <h1>Sol_Agents — UML Diagrams</h1>
+  <p class="meta">Dual-LLM software engineering orchestrator (Developer + Reviewer agents, human in the loop).<br>
+  Generated from the source on branch master, 2026-10-16 (includes the Sol_Backbone milestones).</p>
+  <ol>
+    <li>Use Case Diagram</li>
+    <li>Component / Package Diagram</li>
+    <li>Class Diagram — Orchestration, Agents &amp; Tools</li>
+    <li>Class Diagram — Data Model (Pydantic schemas)</li>
+    <li>Class Diagram — Exception Hierarchy</li>
+    <li>Sequence Diagram — Startup &amp; Specification Agreement</li>
+    <li>Sequence Diagram — Agent Tool Loop</li>
+    <li>Sequence Diagram — Structured Output with Retry</li>
+    <li>Sequence Diagram — One Review Iteration</li>
+    <li>Activity Diagram — ProjectRun.execute()</li>
+    <li>State Machine — ProjectState.status</li>
+    <li>Deployment Diagram</li>
+  </ol>
+</section>
+
+<section>
+  <h2>1. Use Case Diagram</h2>
+  <p class="note">Actors and the goals they pursue through Sol_Agents. The human approves every code-executing step; the two LLM agents only answer questions the orchestrator asks.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TB
+  Human(["👤 Human user"])
+  Dev(["🤖 Developer LLM"])
+  Rev(["🤖 Reviewer LLM"])
+  Docker(["🐳 Docker sandbox"])
+  subgraph SYS["Sol_Agents system"]
+    UC1(("Submit software request"))
+    UC2(("Approve / reject / regenerate specification"))
+    UC3(("Approve tool runs (tests, installs)"))
+    UC4(("Rule on reviewer findings"))
+    UC5(("Settle disputed findings"))
+    UC6(("Try the program"))
+    UC7(("Accept / iterate / stop at final review"))
+    UC8(("Merge run branch"))
+    UC9(("Generate specification"))
+    UC10(("Implement specification"))
+    UC11(("Fix work items"))
+    UC12(("Adjudicate findings"))
+    UC13(("Investigate changes"))
+    UC14(("Write & run review tests"))
+    UC15(("Produce structured review"))
+    UC16(("Run imports, tests / validation"))
+    UC17(("Give feedback: bug, change, new feature"))
+    UC18(("Adopt reviewer suggestions"))
+    UC19(("Survey existing project"))
+    UC20(("Suggest improvements & additions"))
+    UC21(("Maintain project document"))
+  end
+  Human --- UC1 & UC2 & UC3 & UC4 & UC5 & UC6 & UC7 & UC8
+  UC9 & UC10 & UC11 & UC12 --- Dev
+  UC13 & UC14 & UC15 --- Rev
+  UC16 --- Docker
+  Human --- UC17 & UC18
+  UC19 & UC20 & UC21 --- Rev
+  UC17 -. extend .-> UC12
+  UC1 -. include .-> UC9
+  UC10 -. include .-> UC16
+  UC14 -. include .-> UC16
+  UC11 -. extend .-> UC12
+  </pre></div>
+</section>
+
+<section>
+  <h2>2. Component / Package Diagram</h2>
+  <p class="note">Python packages and their dependencies, plus the external systems they talk to.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  MAIN["main.py&lt;br/>«entry point»"]
+  CFG["config.py&lt;br/>«settings / .env»"]
+  LLM["llm.py&lt;br/>LLMClient"]
+  subgraph ORCH["orchestrator/"]
+    WF["workflow&lt;br/>ProjectRun"]
+    SPEC["specification&lt;br/>SpecificationBuilder"]
+    TL["tool_loop"]
+    ST["structured"]
+    VAL["validation"]
+    RV["review"]
+    DEC["decisions"]
+    HUM["human"]
+    TRY["try_it"]
+    SURV["survey"]
+    PD["project_doc"]
+    RL["runlog"]
+    CON["console"]
+  end
+  subgraph AG["agents/"]
+    DA["developer&lt;br/>DeveloperAgent"]
+    RA["reviewer&lt;br/>ReviewerAgent"]
+  end
+  subgraph TOOLS["tools/"]
+    TS["toolsets"]
+    PRJ["project"]
+    GIT["git"]
+    TST["testing"]
+    DEP["dependencies"]
+    RT["review_tests"]
+  end
+  SCH["schemas/&lt;br/>requirements · review · decisions&lt;br/>validation · state"]
+
+  LS[("llama-server&lt;br/>OpenAI-compatible API")]
+  GITCLI[("git CLI")]
+  DOCK[("Docker Engine")]
+  FS[("Project workspace&lt;br/>PROJECT_PATH")]
+  LOGS[("logs/&lt;run_id&gt;/")]
+
+  MAIN --> WF & SPEC & DA & RA & CON & RL & GIT & TS
+  WF --> VAL & RV & DEC & HUM & TRY & RL & CON & TL & GIT & TST
+  DA & RA --> LLM & TL & ST & TS
+  DA --> DEC
+  RA --> RV
+  SPEC --> LLM & ST
+  TL --> LLM
+  ST --> LLM
+  VAL --> PRJ & DEP & TST & GIT
+  TS --> PRJ & GIT & TST & RT
+  TST --> DEP & PRJ
+  TRY --> PRJ & GIT & DEP & TST
+  MAIN --> SURV & PD
+  WF --> PD
+  RA --> PD
+  SURV --> TST
+  PD --> PRJ & GIT
+  LLM --> CFG
+  TST --> CFG
+  ORCH -.-> SCH
+  AG -.-> SCH
+  LLM ==> LS
+  GIT ==> GITCLI
+  TST ==> DOCK
+  DEP ==> DOCK
+  PRJ ==> FS
+  GITCLI ==> FS
+  RL ==> LOGS
+  </pre></div>
+</section>
+
+<section>
+  <h2>3. Class Diagram — Orchestration, Agents &amp; Tools</h2>
+  <p class="note">ProjectRun depends on the Developer/Reviewer protocols; the concrete agents wrap an LLMClient and a role-specific toolset. Tool access is enforced by which methods each toolset exposes.</p>
+  <div class="diagram"><pre class="mermaid">
+classDiagram
+  direction LR
+  class ProjectRun {
+    +state: ProjectState
+    +developer: Developer
+    +reviewer: Reviewer
+    +ui: ConsoleUI
+    +log: RunLog
+    +max_iterations: int = 5
+    +execute() ProjectState
+    -_run()
+    -_validate() ValidationReport
+    -_review(validation) Review
+    -_work_from(review, validation) list~str~
+    -_final_acceptance(review, validation) str
+    -_sync_dependencies()
+    -_checkpoint(label)
+    -_close()
+    -_approver(agent) Approve
+    -_reporter(agent) Callable
+  }
+  class Developer {
+    &lt;&lt;Protocol>>
+    +implement(message, approve, on_call) ToolLoopResult
+    +adjudicate(message, review, human_decisions) DeveloperResponse
+  }
+  class Reviewer {
+    &lt;&lt;Protocol>>
+    +investigate(message, approve, on_call) ToolLoopResult
+    +review(message, specification, changes_made) Review
+  }
+  class DeveloperAgent {
+    +llm: LLMClient
+    +tools: DeveloperToolset
+    +implement(message, approve, on_call) ToolLoopResult
+    +adjudicate(message, review, decisions) DeveloperResponse
+  }
+  class ReviewerAgent {
+    +llm: LLMClient
+    +tools: ReviewerToolset
+    +investigate(message, approve, on_call) ToolLoopResult
+    +review(message, specification, changes_made) Review
+  }
+  class SpecificationBuilder {
+    +llm: LLMClient
+    +build(user_prompt) Specification
+    -_validate_specification(spec, prompt)
+  }
+  class LLMClient {
+    +model: str
+    +base_url: str
+    -_http: httpx.Client
+    +chat(messages, schema, temperature) str
+    +complete(messages, tools, temperature) dict
+    -_send(payload) dict
+  }
+  class ReadOnlyToolset {
+    +base: str
+    +list_files() list~str~
+    +read_file(relative_path) str
+    +search_files(query) list~dict~
+    +git_status() GitResult
+    +git_diff() GitResult
+    +git_recent_commits(count) GitResult
+  }
+  class DeveloperToolset {
+    +write_file(relative_path, content) str
+    +run_tests() SuiteRun
+    +install_dependencies() str
+  }
+  class ReviewerToolset {
+    +review_dir: Path
+    +write_review_test(filename, content) str
+    +run_review_tests() SuiteRun
+  }
+  class ConsoleUI {
+    +say(text)
+    +ask(prompt) str
+    +heading(title)
+    +confirm(question, default) bool
+    +choose(prompt, options, default) str
+    +ask_required(prompt) str
+  }
+  class RunLog {
+    +dir: Path
+    +state_path: Path
+    +events_path: Path
+    +save_state(state)
+    +event(kind, data)
+  }
+  class ToolCall {
+    &lt;&lt;dataclass>>
+    +name: str
+    +arguments: str
+    +result: str
+  }
+  class ToolLoopResult {
+    &lt;&lt;dataclass>>
+    +final_text: str
+    +calls: list~ToolCall~
+  }
+  class GitResult {
+    &lt;&lt;dataclass>>
+    +args: list~str~
+    +returncode: int
+    +stdout: str
+    +stderr: str
+    +ok: bool
+    +truncated: bool
+  }
+  class SuiteRun {
+    &lt;&lt;dataclass>>
+    +command: list~str~
+    +returncode: int
+    +output: str
+    +passed: bool
+    +no_tests: bool
+  }
+
+  ProjectRun o-- Developer
+  ProjectRun o-- Reviewer
+  ProjectRun o-- ConsoleUI
+  ProjectRun o-- RunLog
+  Developer &lt;|.. DeveloperAgent : realizes
+  Reviewer &lt;|.. ReviewerAgent : realizes
+  DeveloperAgent *-- LLMClient
+  ReviewerAgent *-- LLMClient
+  SpecificationBuilder *-- LLMClient
+  DeveloperAgent o-- DeveloperToolset
+  ReviewerAgent o-- ReviewerToolset
+  ReadOnlyToolset &lt;|-- DeveloperToolset
+  ReadOnlyToolset &lt;|-- ReviewerToolset
+  ToolLoopResult *-- "0..*" ToolCall
+  ReadOnlyToolset ..> GitResult : returns
+  DeveloperToolset ..> SuiteRun : returns
+  ReviewerToolset ..> SuiteRun : returns
+  DeveloperAgent ..> ToolLoopResult : returns
+  ReviewerAgent ..> ToolLoopResult : returns
+  </pre></div>
+</section>
+
+<section>
+  <h2>4. Class Diagram — Data Model (Pydantic schemas)</h2>
+  <p class="note">All models use extra="forbid". ProjectState is the single source of truth for a run and is only mutated by the orchestrator; it is persisted to logs/&lt;run_id&gt;/state.json.</p>
+  <div class="diagram"><pre class="mermaid">
+classDiagram
+  direction LR
+  class ProjectState {
+    +run_id: str
+    +user_prompt: str
+    +project_path: str
+    +original_branch: str
+    +run_branch: str
+    +base_commit: str
+    +status: Status = "requirements"
+    +iteration: int = 0
+    +developer_summary: str?
+    +outcome: str?
+    +amendments: list~str~
+  }
+  class Checkpoint {
+    +commit: str
+    +label: str
+  }
+  class Specification {
+    +summary: str
+    +assumptions: list~str~
+    +open_questions: list~str~
+  }
+  class Requirement {
+    +id: str «REQ-nnn»
+    +description: str
+    +acceptance_criteria: list~str~ [1..*]
+    +source: "explicit"
+    +source_text: str
+  }
+  class Review {
+    +verdict: approved | changes_required
+  }
+  class RequirementResult {
+    +requirement_id: str «REQ-nnn»
+    +status: pass | fail | uncertain
+    +evidence: str
+  }
+  class Finding {
+    +id: str «F/H/S-nnn»
+    +severity: critical | high | medium | low
+    +category: bug | requirement | security | performance | quality | test
+    +requirement_id: str?
+    +file: str?
+    +line: int?
+    +claim: str
+    +evidence: str
+    +reproduction: str?
+    +suggested_fix: str?
+  }
+  class HumanDecision {
+    +finding_id: str «F-nnn»
+    +action: approve | reject | investigate | instruct
+    +note: str?
+  }
+  class DeveloperResponse
+  class FindingDecision {
+    +finding_id: str «F-nnn»
+    +decision: accept | reject | partially_accept
+    +reasoning: str
+    +evidence: str?
+    +action: str?
+  }
+  class ValidationReport {
+    +unexpected_files: list~str~
+    +failures: list~str~ «property»
+    +checks() dict~str, CheckResult~
+    +summary() str
+  }
+  class CheckResult {
+    +status: pass | fail | not_configured | not_run
+    +command: str?
+    +output: str
+  }
+  class Suggestion {
+    +id: str «S-nnn»
+    +kind: improvement | addition
+    +file: str?
+    +line: int?
+    +description: str
+    +rationale: str
+  }
+  class HumanFeedback {
+    +kind: bug | change | feature
+    +text: str
+  }
+  class ProjectSummary {
+    +purpose: str
+    +entry_points: list~str~
+    +how_to_run: str
+    +tests: str
+    +dependencies: list~str~
+    +known_issues: list~str~
+  }
+  class ModuleInfo {
+    +path: str
+    +responsibility: str
+  }
+  class ProjectDocument {
+    «.sol/project.json»
+    +commit: str
+  }
+  class RunRecord {
+    +run_id: str
+    +request: str
+    +requirements: list~str~
+    +outcome: str
+  }
+
+  ProjectState *-- "1" Specification : specification
+  ProjectState *-- "0..1" ValidationReport : validation
+  ProjectState *-- "0..1" Review : review
+  ProjectState *-- "0..*" HumanDecision : human_decisions
+  ProjectState *-- "0..1" DeveloperResponse : developer_response
+  ProjectState *-- "0..*" Finding : dismissed_findings
+  ProjectState *-- "0..*" Checkpoint : checkpoints
+  Specification *-- "1..*" Requirement : requirements
+  Review *-- "0..*" RequirementResult : requirements
+  Review *-- "0..*" Finding : findings
+  DeveloperResponse *-- "0..*" FindingDecision : decisions
+  ValidationReport *-- "6" CheckResult : build, dependencies, imports, tests, lint, static_analysis
+  Review *-- "0..*" Suggestion : suggestions
+  ProjectState *-- "0..*" HumanFeedback : feedback
+  ProjectState *-- "0..1" ProjectSummary : project_summary
+  ProjectDocument *-- "1" ProjectSummary : summary
+  ProjectDocument *-- "0..*" RunRecord : history
+  ProjectSummary *-- "0..*" ModuleInfo : modules
+  RequirementResult ..> Requirement : requirement_id
+  HumanDecision ..> Finding : finding_id
+  FindingDecision ..> Finding : finding_id
+  </pre></div>
+</section>
+
+<section>
+  <h2>5. Class Diagram — Exception Hierarchy</h2>
+  <p class="note">Recoverable tool errors are turned into "ERROR: …" tool results inside the tool loop; the rest abort main() with a clean message.</p>
+  <div class="diagram"><pre class="mermaid">
+classDiagram
+  direction TB
+  class Exception
+  class RuntimeError
+  class ValueError
+  class LLMError {
+    llm.py — server unreachable / bad reply
+  }
+  class GitError {
+    tools/git.py
+  }
+  class ProjectAccessError {
+    tools/project.py — path escapes project
+  }
+  class DependencyError {
+    tools/dependencies.py
+  }
+  class SuiteRunError {
+    tools/testing.py — test command not runnable
+  }
+  class SandboxUnavailable
+  class DependenciesNotReady
+  class ToolLoopLimitError {
+    too many tool rounds
+  }
+  class StructuredOutputError {
+    no valid JSON after 3 attempts
+  }
+  class SpecificationRejected
+  class ReviewRejected
+  class ResponseRejected
+
+  Exception &lt;|-- LLMError
+  Exception &lt;|-- GitError
+  Exception &lt;|-- ProjectAccessError
+  Exception &lt;|-- DependencyError
+  Exception &lt;|-- SuiteRunError
+  SuiteRunError &lt;|-- SandboxUnavailable
+  SuiteRunError &lt;|-- DependenciesNotReady
+  Exception &lt;|-- RuntimeError
+  Exception &lt;|-- ValueError
+  RuntimeError &lt;|-- ToolLoopLimitError
+  RuntimeError &lt;|-- StructuredOutputError
+  ValueError &lt;|-- SpecificationRejected
+  ValueError &lt;|-- ReviewRejected
+  ValueError &lt;|-- ResponseRejected
+  class SummaryRejected
+  ValueError &lt;|-- SummaryRejected
+  </pre></div>
+</section>
+
+<section>
+  <h2>6. Sequence Diagram — Startup &amp; Specification Agreement</h2>
+  <p class="note">main() refuses to start on a dirty repo, agrees a specification with the human, then hands a fresh ProjectState to ProjectRun.</p>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor H as Human
+  participant M as main()
+  participant UI as ConsoleUI
+  participant G as tools.git
+  participant SB as SpecificationBuilder
+  participant RA as ReviewerAgent
+  participant PD as project_doc
+  participant L as LLMClient
+  participant S as llama-server
+  participant RL as RunLog
+  participant PR as ProjectRun
+
+  M->>G: status()
+  alt uncommitted changes
+    M->>UI: say("Commit or stash them first")
+    M-->>H: exit
+  end
+  M->>G: current_branch(), current_commit()
+  M->>PD: load_document(), changes_since(document)
+  alt document describes HEAD
+    PD-->>M: stored summary + history
+  else project has code (no document, or code changed since)
+    M->>UI: confirm("Let the Reviewer read the project first?")
+    H->>UI: yes
+    M->>RA: survey_project: investigate(survey task)
+    M->>RA: summarize(notes) - only real file paths accepted
+    RA-->>M: ProjectSummary
+  end
+  M->>UI: ask_required("Enter a simple software request")
+  H->>UI: request text
+  loop until approved or rejected
+    M->>SB: build(user_request, context=summary + history)
+    loop up to 3 attempts
+      SB->>L: chat(messages, schema=Specification, temperature=0)
+      L->>S: POST /chat/completions
+      S-->>L: JSON content
+      L-->>SB: content
+      SB->>SB: model_validate_json + _validate_specification&lt;br/>(unique IDs, source_text verbatim in prompt)
+    end
+    SB-->>M: Specification
+    M->>UI: show spec, choose [Y]es / [N]o / [R]egenerate
+    H->>UI: choice
+  end
+  alt rejected
+    M-->>H: "Stopping before implementation"
+  else approved
+    M->>M: ProjectState(run_id, spec, base_commit, run_branch=sol/run-id)
+    M->>RL: save_state(state), event("specification_approved")
+    M->>M: create review_dir (temp), DeveloperAgent(DeveloperToolset), ReviewerAgent(ReviewerToolset)
+    M->>PR: execute()
+    PR-->>M: final ProjectState
+    M->>M: remove review_dir
+  end
+  </pre></div>
+</section>
+
+<section>
+  <h2>7. Sequence Diagram — Agent Tool Loop (run_tool_loop)</h2>
+  <p class="note">Shared by Developer.implement and Reviewer.investigate. max_steps = 20 (Developer) or 15 (Reviewer). Tools in NEEDS_APPROVAL require the human's consent first.</p>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant A as Agent (Developer / Reviewer)
+  participant TL as run_tool_loop
+  participant L as LLMClient
+  participant S as llama-server
+  participant D as dispatch()
+  participant AP as approve() — ProjectRun._approver
+  actor H as Human
+  participant T as Toolset
+  participant R as on_call — ProjectRun._reporter
+
+  A->>TL: run_tool_loop(llm, toolset, system_prompt, message, approve)
+  TL->>TL: specs = tool_specs_for(toolset)
+  loop up to max_steps
+    TL->>L: complete(messages, tools=specs)
+    L->>S: POST /chat/completions
+    S-->>L: assistant message
+    L-->>TL: reply
+    alt no tool_calls
+      TL-->>A: ToolLoopResult(final_text, calls)
+    else tool_calls requested
+      loop each tool call
+        TL->>D: dispatch(toolset, name, raw_args, approve)
+        D->>D: lookup spec, parse JSON, check arguments
+        opt name in {run_tests, run_review_tests, install_dependencies}
+          D->>AP: approve(name, args)
+          AP->>H: confirm("…executes code inside the Docker sandbox. Allow?")
+          H-->>AP: y / n
+          AP-->>D: allowed
+        end
+        alt allowed and valid
+          D->>T: method(**arguments)
+          T-->>D: str / GitResult / SuiteRun / list
+          D->>D: _format(result)
+        else error / declined
+          D->>D: "ERROR: …"
+        end
+        D-->>TL: result text
+        TL->>R: on_call(ToolCall) — print + log event
+        TL->>TL: append {role: tool, content: result}
+      end
+    end
+  end
+  TL-->>A: raise ToolLoopLimitError
+  </pre></div>
+</section>
+
+<section>
+  <h2>8. Sequence Diagram — Structured Output with Retry (request_structured)</h2>
+  <p class="note">Used by DeveloperAgent.adjudicate (→ DeveloperResponse) and ReviewerAgent.review (→ Review). The exact rejection reason is fed back to the model.</p>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant A as Agent
+  participant RS as request_structured
+  participant L as LLMClient
+  participant P as Pydantic model
+  participant V as validator&lt;br/>(validate_review / validate_developer_response)
+
+  A->>RS: request_structured(llm, prompt, message, Model, validate, Rejection, what)
+  loop attempt 1..3
+    RS->>L: chat(messages + retry note, schema=Model.json_schema, temperature=0)
+    L-->>RS: JSON text
+    RS->>P: model_validate_json(text)
+    alt schema invalid
+      P-->>RS: ValidationError
+      RS->>RS: last_error = error
+    else schema ok
+      RS->>V: validate(result)
+      alt business rule broken
+        V-->>RS: ReviewRejected / ResponseRejected
+        RS->>RS: last_error = error
+      else ok
+        RS-->>A: result
+      end
+    end
+  end
+  RS-->>A: raise StructuredOutputError(last_error)
+  </pre></div>
+</section>
+
+<section>
+  <h2>9. Sequence Diagram — One Review Iteration</h2>
+  <p class="note">Orchestrator-run validation, adversarial review, the human's ruling on findings, Developer adjudication, dispute resolution and the fix pass with a git checkpoint.</p>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor H as Human
+  participant PR as ProjectRun
+  participant V as validation
+  participant DK as Docker sandbox
+  participant RA as ReviewerAgent
+  participant DA as DeveloperAgent
+  participant G as tools.git
+  participant RL as RunLog
+
+  PR->>PR: _sync_dependencies() (ask H before install)
+  PR->>V: run_validation(base, approve_tests)
+  V->>V: check_syntax(), check_dependencies()
+  V->>H: "Import the modules and run the tests?" (asked once)
+  H-->>V: yes
+  V->>DK: docker run --network none --read-only … import each module, then pytest
+  DK-->>V: SuiteRun
+  V-->>PR: ValidationReport
+  PR->>G: diff(base_commit)
+  PR->>RA: investigate(message with diff + validation)
+  Note over RA: tool loop: read files,&lt;br/>write_review_test, run_review_tests
+  RA-->>PR: ToolLoopResult (notes + transcript)
+  PR->>RA: review(message, spec, changes_made)
+  RA-->>PR: Review (verdict, requirement results, findings)
+  PR->>RL: save_state, event("review")
+  PR->>PR: blocking_problems(review, validation)
+  alt no blocking problems
+    PR->>H: FINAL REVIEW: [a]ccept / [t]ry / [f]eedback / [p]ick / [i]terate / [s]top
+    Note over PR,H: feedback: bug/change becomes H-nnn, feature amends spec.&lt;br/>pick: improvement becomes S-nnn, addition amends spec.&lt;br/>H-/S- items skip human_review and go straight to adjudication.
+  else blocking problems
+    PR->>H: list problems (ask to continue if iteration limit hit)
+  end
+  opt review has findings
+    PR->>H: human_review(): approve / reject / investigate / instruct each
+    H-->>PR: list~HumanDecision~
+    PR->>DA: adjudicate(message, review, decisions)
+    DA-->>PR: DeveloperResponse (accept / partially_accept / reject)
+    PR->>H: resolve_disputes(): uphold or override each rejection
+    H-->>PR: overridden ids, dismissed findings
+  end
+  PR->>DA: implement(fix message with work items)
+  Note over DA: tool loop: read_file, write_file,&lt;br/>run_tests, git_diff
+  DA-->>PR: ToolLoopResult (summary)
+  PR->>G: commit_all("sol: fix N (run id)")
+  G-->>PR: commit sha
+  PR->>RL: event("checkpoint")
+  </pre></div>
+</section>
+
+<section class="tall">
+  <h2>10. Activity Diagram — ProjectRun.execute()</h2>
+  <p class="note">Main control flow. Any exception sets status = failed; _close() always runs (final commit, switch back to original branch, optional fast-forward merge).</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  start((●)) --> B[create_branch sol/run-id]
+  B --> I[Developer.implement spec]
+  I --> C1[checkpoint: implementation]
+  C1 --> IT[iteration += 1]
+  IT --> DEP{pending packages?}
+  DEP -- yes --> ASKD{human approves install?}
+  ASKD -- yes --> INS[install_dependencies]
+  ASKD -- no --> VAL
+  INS --> VAL
+  DEP -- no --> VAL[run_validation&lt;br/>syntax · deps · imports · tests · deleted files]
+  VAL --> REV[Reviewer.investigate → Reviewer.review]
+  REV --> BP{blocking problems?}
+  BP -- no --> FIN{final review choice}
+  FIN -- try --> TRY[try_program, offer restore] --> FIN
+  FIN -- accept --> OK[status = complete]
+  FIN -- stop --> FAIL[status = failed]
+  FIN -- iterate --> WORK
+  FIN -- feedback --> FB[bug or change: queue H-finding&lt;br/>feature: amend spec, human approves]
+  FIN -- pick --> PK[improvement: queue S-finding&lt;br/>addition: amend spec, human approves]
+  FB --> WORK
+  PK --> WORK
+  BP -- yes --> LIM{iteration ≥ max&lt;br/>and human declines more?}
+  LIM -- yes --> FAIL
+  LIM -- no --> WORK[collect work: failed requirements,&lt;br/>validation failures]
+  WORK --> FND{review has findings?}
+  FND -- yes --> HR[human_review each finding]
+  HR --> ADJ{findings to adjudicate?}
+  ADJ -- yes --> DR[Developer.adjudicate → resolve_disputes]
+  DR --> ADDW[add accepted + overridden findings to work]
+  ADJ -- no --> EMP
+  ADDW --> EMP
+  FND -- no --> EMP{work empty?}
+  EMP -- yes --> IT
+  EMP -- no --> FIX[Developer.implement fix message]
+  FIX --> C2[checkpoint: fix N]
+  C2 --> IT
+  OK --> DOC[Reviewer.summarize: write .sol project&lt;br/>document, commit it]
+  DOC --> CL
+  FAIL --> CL[_close: commit leftovers,&lt;br/>switch to original branch]
+  CL --> MQ{complete and checkpoints&lt;br/>and human agrees?}
+  MQ -- yes --> MG[merge_fast_forward run branch]
+  MQ -- no --> E((◉))
+  MG --> E
+  </pre></div>
+</section>
+
+<section>
+  <h2>11. State Machine — ProjectState.status</h2>
+  <p class="note">Values of the Status literal in schemas/state.py and the transitions ProjectRun makes. "test" is declared but not currently entered.</p>
+  <div class="diagram"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> requirements : ProjectState created
+  requirements --> implement : execute()
+  implement --> validate : implementation checkpoint
+  validate --> review : ValidationReport saved
+  review --> final_review : no blocking problems
+  review --> human_review : blocking problems, findings exist
+  review --> fix : blocking problems, no findings
+  review --> validate : nothing to fix (re-review)
+  review --> failed : iteration limit, human stops
+  final_review --> complete : accept
+  final_review --> failed : stop
+  final_review --> human_review : iterate on optional findings
+  final_review --> developer_response : feedback / adopted suggestions
+  final_review --> fix : new requirements only
+  human_review --> developer_response : findings to adjudicate
+  human_review --> fix : work items, none to adjudicate
+  human_review --> validate : no work
+  developer_response --> fix : work items
+  developer_response --> validate : no work
+  fix --> validate : fix checkpoint
+  test : test (declared, unused)
+  complete --> [*]
+  failed --> [*]
+  note left of failed
+    also entered on any
+    exception in execute()
+  end note
+  </pre></div>
+</section>
+
+<section>
+  <h2>12. Deployment Diagram</h2>
+  <p class="note">Runtime nodes. The model server is local (default http://localhost:8080/v1). Tests run in a locked-down container unless SANDBOX=local; "try it yourself" runs on the host by design.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  subgraph HOST["«device» Workstation"]
+    subgraph PY["«exec env» Python 3.12"]
+      APP["«artifact» Sol_Agents&lt;br/>main.py + orchestrator + agents + tools"]
+    end
+    subgraph REPO["«fs» PROJECT_PATH"]
+      BR["branches: original + sol/run-&lt;id&gt;&lt;br/>checkpoint commits&lt;br/>.sol/ project document"]
+    end
+    REVD["«filesystem» temp sol-review-&lt;id&gt;/&lt;br/>Reviewer's adversarial tests"]
+    LOGD["«filesystem» logs/&lt;run_id&gt;/&lt;br/>state.json · events.jsonl"]
+    ENV["«filesystem» local venvs&lt;br/>(SANDBOX=local only)"]
+    TERM["«device» Terminal&lt;br/>(ConsoleUI)"]
+    subgraph LLMN["«exec env» llama-server"]
+      MD["Developer model&lt;br/>(DEVELOPER_MODEL)"]
+      MR["Reviewer model&lt;br/>(REVIEWER_MODEL)"]
+    end
+    subgraph DOCKER["«exec env» Docker Engine"]
+      IMG["«artifact» sol-agents-sandbox image&lt;br/>python:3.12-slim + pytest&lt;br/>+ per-requirements tagged images"]
+      CT["«container» sol-tests-&lt;uuid&gt;&lt;br/>--network none · --read-only · cap-drop ALL&lt;br/>user 65534 · 1 GB · 2 CPUs · 256 pids"]
+    end
+  end
+
+  APP &lt;-->|"HTTP POST /v1/chat/completions"| LLMN
+  APP &lt;-->|stdin / stdout| TERM
+  APP -->|"git subprocess"| REPO
+  APP -->|"read / write via tools.project"| REPO
+  APP -->|write| LOGD
+  APP -->|write tests| REVD
+  APP -->|"docker run / build"| DOCKER
+  IMG -.->|instantiates| CT
+  REPO -.->|"bind mount /project (ro)"| CT
+  REVD -.->|"bind mount /review (ro)"| CT
+  APP -.->|"SANDBOX=local / try it"| ENV
+  </pre></div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false, theme: "default", securityLevel: "loose",
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true, mirrorActors: false },
+    class: { useMaxWidth: true }, state: { useMaxWidth: true }
+  });
+  mermaid.run({ querySelector: ".mermaid" })
+    .then(() => { document.title = "RENDERED"; })
+    .catch(e => { document.title = "ERROR"; document.body.insertAdjacentHTML("afterbegin", "<pre id=err>" + (e.message || e.str || JSON.stringify(e)) + "</pre>"); });
+</script>
+</body>
+</html>

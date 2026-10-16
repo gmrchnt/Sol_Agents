@@ -1,6 +1,6 @@
 from pydantic import ValidationError
 
-from config import DEVELOPER_MODEL
+from config import DEVELOPER_API_KEY, DEVELOPER_BASE_URL, DEVELOPER_MODEL
 from llm import LLMClient
 from orchestrator.structured import StructuredOutputError
 from schemas.requirements import Specification
@@ -95,9 +95,19 @@ def _cited_on_word_boundaries(prompt: str, source_text: str) -> bool:
 class SpecificationBuilder:
 
     def __init__(self) -> None:
-        self.llm = LLMClient(DEVELOPER_MODEL)
+        self.llm = LLMClient(DEVELOPER_MODEL, base_url=DEVELOPER_BASE_URL,
+                             api_key=DEVELOPER_API_KEY)
 
-    def build(self, user_prompt: str) -> Specification:
+    def build(self, user_prompt: str, context: str | None = None) -> Specification:
+        """`context` describes what already exists. It is background only: every
+        requirement must still be quoted from `user_prompt`."""
+        background = ""
+        if context:
+            background = (
+                "BACKGROUND - what already exists. Use it to understand the request; "
+                "never take requirements or source_text from it:\n"
+                f"{context}\n\n"
+            )
         last_error: Exception | None = None
         for attempt in range(3):
             extra_instruction = ""
@@ -131,7 +141,7 @@ class SpecificationBuilder:
                             For every explicit requirement, source_text must be copied
                             verbatim from the user's request.
 
-                            USER REQUEST:
+                            {background}USER REQUEST:
                             {user_prompt}
                             {extra_instruction}
                             """.strip()

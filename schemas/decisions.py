@@ -2,7 +2,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-FindingId = Annotated[str, Field(pattern=r"^F-\d{3}$")]
+FindingId = Annotated[str, Field(pattern=r"^[FHS]-\d{3}$")]
 
 
 class HumanDecision(BaseModel):
@@ -27,3 +27,12 @@ class DeveloperResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     decisions: list[FindingDecision] = Field(default_factory=list)
+
+
+class HumanFeedback(BaseModel):
+    """Something the human reports at final review, usually after trying the program."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["bug", "change", "feature"]
+    text: str = Field(min_length=1)
